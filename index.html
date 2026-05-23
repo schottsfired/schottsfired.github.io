@@ -3,496 +3,163 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Particle Field · Claude</title>
+  <title>David Schott</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg:           #07090f;
+      --surface:      rgba(255, 255, 255, 0.03);
+      --border:       rgba(255, 255, 255, 0.07);
+      --border-hover: rgba(255, 255, 255, 0.15);
+      --text:         rgba(255, 255, 255, 0.85);
+      --muted:        rgba(255, 255, 255, 0.35);
+    }
+
     body {
-      background: #000;
-      overflow: hidden;
+      min-height: 100dvh;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse 90% 55% at 50% -10%, rgba(94, 234, 212, 0.05) 0%, transparent 70%),
+        radial-gradient(ellipse 55% 40% at 90% 110%, rgba(129, 140, 248, 0.05) 0%, transparent 70%);
+      color: var(--text);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-      -webkit-user-select: none;
-      user-select: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 64px 24px;
     }
 
-    canvas { display: block; cursor: none; }
-
-    .ui {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
+    main {
+      width: 100%;
+      max-width: 540px;
     }
 
-    .glass {
-      background: rgba(8, 10, 28, 0.72);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      border-radius: 14px;
-    }
-
-    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-      .glass { background: rgba(255, 255, 255, 0.04); }
-    }
-
-    /* ── Header ── */
-    .header {
-      position: absolute;
-      top: 24px;
-      left: 24px;
-      padding: 16px 22px;
-    }
-
-    .header h1 {
-      font-size: 27px;
+    /* ── Name ── */
+    .name {
+      font-size: clamp(38px, 7vw, 54px);
       font-weight: 600;
-      letter-spacing: -0.5px;
+      letter-spacing: -1.5px;
       line-height: 1;
-      margin-bottom: 7px;
-      background: linear-gradient(135deg, #5eead4 0%, #818cf8 45%, #f472b6 100%);
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, #5eead4 0%, #818cf8 52%, #f472b6 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
 
-    .header p {
-      font-size: 12px;
+    .tagline {
+      font-size: 14px;
       font-weight: 300;
-      color: rgba(255, 255, 255, 0.38);
-      letter-spacing: 0.025em;
-    }
-
-    /* ── Stats ── */
-    .stats {
-      position: absolute;
-      top: 24px;
-      right: 24px;
-      padding: 12px 18px;
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.32);
-      line-height: 1.85;
-      font-variant-numeric: tabular-nums;
-      text-align: right;
-    }
-
-    .stats .val {
-      color: rgba(255, 255, 255, 0.62);
-      margin-left: 6px;
-    }
-
-    #grav-badge {
-      display: none;
-      color: rgba(251, 191, 36, 0.7);
-      font-size: 11px;
-    }
-
-    /* ── Controls ── */
-    .controls {
-      position: absolute;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 20px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      white-space: nowrap;
-    }
-
-    .ctrl {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.32);
-    }
-
-    .key {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.11);
-      border-radius: 5px;
-      padding: 2px 8px;
-      font-size: 10px;
-      font-weight: 500;
-      color: rgba(255, 255, 255, 0.52);
-      letter-spacing: 0.04em;
-    }
-
-    .sep {
-      width: 1px;
-      height: 13px;
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    /* ── Badge ── */
-    .badge {
-      position: absolute;
-      bottom: 24px;
-      right: 24px;
-      padding: 11px 16px;
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.55);
-      text-align: right;
-      line-height: 1.65;
-    }
-
-    .badge strong {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #fff;
-      background: linear-gradient(90deg, #5eead4, #818cf8);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    /* ── Mobile: hide keyboard controls, show touch hint ── */
-    .touch-controls { display: none; }
-
-    @media (hover: none) and (pointer: coarse) {
-      .controls { display: none; }
-      .touch-controls {
-        display: flex;
-        position: absolute;
-        bottom: 24px;
-        left: 50%;
-        transform: translateX(-50%);
-        padding: 10px 20px;
-        align-items: center;
-        gap: 14px;
-        white-space: nowrap;
-        font-size: 11px;
-        color: rgba(255, 255, 255, 0.38);
-      }
-    }
-
-    /* ── Gravity toast ── */
-    #toast {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      padding: 9px 20px;
-      border-radius: 99px;
-      font-size: 13px;
-      font-weight: 500;
-      color: rgba(255, 255, 255, 0.7);
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      opacity: 0;
-      transition: opacity 0.35s;
+      color: var(--muted);
+      margin-bottom: 60px;
       letter-spacing: 0.01em;
     }
 
-    #toast.show { opacity: 1; }
+    /* ── Section ── */
+    .section-label {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Cards ── */
+    .experiments {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      text-decoration: none;
+      color: inherit;
+      transition: background 0.17s, border-color 0.17s, transform 0.17s;
+    }
+
+    .card:hover {
+      background: rgba(255, 255, 255, 0.055);
+      border-color: var(--border-hover);
+      transform: translateX(4px);
+    }
+
+    .card-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: linear-gradient(135deg, #5eead4, #818cf8);
+      box-shadow: 0 0 10px rgba(94, 234, 212, 0.45);
+    }
+
+    .card-body { flex: 1; min-width: 0; }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.88);
+      margin-bottom: 2px;
+    }
+
+    .card-desc {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 300;
+    }
+
+    .card-arrow {
+      font-size: 15px;
+      color: var(--muted);
+      flex-shrink: 0;
+      transition: color 0.17s, transform 0.17s;
+    }
+
+    .card:hover .card-arrow {
+      color: rgba(255, 255, 255, 0.55);
+      transform: translateX(3px);
+    }
   </style>
 </head>
 <body>
-<canvas id="canvas"></canvas>
+  <main>
+    <h1 class="name">David Schott</h1>
+    <p class="tagline">Experiments on the web.</p>
 
-<div class="ui">
-  <div class="header glass">
-    <h1>Particle Field</h1>
-    <p>Interactive physics simulation · Built by Claude</p>
-  </div>
-
-  <div class="stats glass">
-    <div>FPS <span class="val" id="fps">—</span></div>
-    <div>Particles <span class="val" id="pcount">—</span></div>
-    <div id="grav-badge">⬇ Gravity</div>
-  </div>
-
-  <div class="controls glass">
-    <div class="ctrl"><span class="key">Move</span> Repel</div>
-    <div class="sep"></div>
-    <div class="ctrl"><span class="key">Hold</span> Attract</div>
-    <div class="sep"></div>
-    <div class="ctrl"><span class="key">Space</span> Burst</div>
-    <div class="sep"></div>
-    <div class="ctrl"><span class="key">G</span> Gravity</div>
-    <div class="sep"></div>
-    <div class="ctrl"><span class="key">C</span> Clear</div>
-  </div>
-
-  <div class="touch-controls glass">
-    <div class="ctrl">Touch &amp; drag to attract</div>
-    <div class="sep"></div>
-    <div class="ctrl">Release for burst</div>
-  </div>
-
-  <div class="badge glass">
-    Proof of life<br>
-    <strong>Built by Claude</strong>
-  </div>
-
-  <div id="toast"></div>
-</div>
-
-<script>
-(function () {
-  'use strict';
-
-  const canvas = document.getElementById('canvas');
-  const ctx    = canvas.getContext('2d');
-
-  let W = 0, H = 0;
-
-  const mouse = { x: -9999, y: -9999, down: false };
-  let gravityOn  = false;
-  let particles  = [];
-
-  const BASE_COUNT  = 230;
-  const MAX_COUNT   = 520;
-  const MOUSE_R     = 190;
-  const MOUSE_R_SQ  = MOUSE_R * MOUSE_R;
-  const CONN_D      = 115;
-  const CONN_D_SQ   = CONN_D * CONN_D;
-
-  // ─── Resize ───────────────────────────────────────────────────────────────
-  function resize() {
-    W = canvas.width  = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-  }
-
-  // ─── Particle ─────────────────────────────────────────────────────────────
-  class Particle {
-    constructor(x, y, vx, vy) {
-      this.x   = x  ?? Math.random() * W;
-      this.y   = y  ?? Math.random() * H;
-      this.vx  = vx ?? (Math.random() - 0.5) * 2.8;
-      this.vy  = vy ?? (Math.random() - 0.5) * 2.8;
-      this.r   = Math.random() * 1.8 + 0.6;
-      this.hue = 170 + Math.random() * 140; // teal → indigo → pink
-    }
-
-    update() {
-      const dx  = mouse.x - this.x;
-      const dy  = mouse.y - this.y;
-      const dSq = dx * dx + dy * dy;
-
-      if (dSq < MOUSE_R_SQ && dSq > 0.01) {
-        const d = Math.sqrt(dSq);
-        const t = 1 - d / MOUSE_R;
-        const f = t * t * (mouse.down ? 3.0 : -1.6) * 0.13;
-        this.vx += (dx / d) * f;
-        this.vy += (dy / d) * f;
-      }
-
-      if (gravityOn) this.vy += 0.045;
-
-      this.vx *= 0.974;
-      this.vy *= 0.974;
-
-      const spd = Math.hypot(this.vx, this.vy);
-      if (spd > 13) {
-        this.vx = (this.vx / spd) * 13;
-        this.vy = (this.vy / spd) * 13;
-      }
-
-      this.x += this.vx;
-      this.y += this.vy;
-
-      if (gravityOn) {
-        if (this.x < 0)  { this.x = 0;  this.vx *= -0.65; }
-        if (this.x > W)  { this.x = W;  this.vx *= -0.65; }
-        if (this.y > H)  { this.y = H;  this.vy *= -0.58; }
-        if (this.y < 0)  { this.y = 0;  this.vy *= -0.4;  }
-      } else {
-        if (this.x < 0) this.x += W;
-        if (this.x > W) this.x -= W;
-        if (this.y < 0) this.y += H;
-        if (this.y > H) this.y -= H;
-      }
-    }
-
-    draw() {
-      const spd = Math.hypot(this.vx, this.vy);
-      const h   = this.hue + spd * 13;
-      const l   = 52 + spd * 5;
-      const r   = this.r + spd * 0.12;
-
-      ctx.shadowBlur  = 9 + spd * 4.5;
-      ctx.shadowColor = `hsl(${h},100%,${l}%)`;
-      ctx.fillStyle   = `hsl(${h},100%,${Math.min(l + 24, 96)}%)`;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, r, 0, 6.2832);
-      ctx.fill();
-    }
-  }
-
-  // ─── Connection lines ──────────────────────────────────────────────────────
-  function drawConnections() {
-    ctx.shadowBlur = 0;
-    ctx.lineWidth  = 0.5;
-
-    for (let i = 0; i < particles.length - 1; i++) {
-      const a = particles[i];
-      for (let j = i + 1; j < particles.length; j++) {
-        const b  = particles[j];
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        const dSq = dx * dx + dy * dy;
-
-        if (dSq < CONN_D_SQ) {
-          const alpha = (1 - Math.sqrt(dSq) / CONN_D) * 0.20;
-          const hue   = (a.hue + b.hue) * 0.5;
-          ctx.strokeStyle = `hsla(${hue},75%,72%,${alpha})`;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-      }
-    }
-  }
-
-  // ─── Custom cursor ─────────────────────────────────────────────────────────
-  function drawCursor() {
-    if (mouse.x < -100) return;
-
-    const cr = mouse.down ? '255,160,80' : '80,200,255';
-
-    // Influence zone glow
-    const grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, MOUSE_R);
-    grad.addColorStop(0,   `rgba(${cr},0.055)`);
-    grad.addColorStop(0.4, `rgba(${cr},0.018)`);
-    grad.addColorStop(1,   'rgba(0,0,0,0)');
-    ctx.shadowBlur  = 0;
-    ctx.fillStyle   = grad;
-    ctx.beginPath();
-    ctx.arc(mouse.x, mouse.y, MOUSE_R, 0, 6.2832);
-    ctx.fill();
-
-    // Outer ring
-    ctx.strokeStyle = `rgba(${cr},0.18)`;
-    ctx.lineWidth   = 1;
-    ctx.beginPath();
-    ctx.arc(mouse.x, mouse.y, MOUSE_R, 0, 6.2832);
-    ctx.stroke();
-
-    // Center dot
-    ctx.shadowBlur  = 20;
-    ctx.shadowColor = `rgba(${cr},1)`;
-    ctx.fillStyle   = `rgba(${cr},0.85)`;
-    ctx.beginPath();
-    ctx.arc(mouse.x, mouse.y, 3.5, 0, 6.2832);
-    ctx.fill();
-  }
-
-  // ─── Burst ────────────────────────────────────────────────────────────────
-  function burst(x, y, n) {
-    n = n || 35;
-    for (let i = 0; i < n; i++) {
-      if (particles.length >= MAX_COUNT) particles.shift();
-      const angle = (i / n) * 6.2832 + Math.random() * 0.4;
-      const spd   = Math.random() * 7 + 2.5;
-      particles.push(new Particle(
-        x + (Math.random() - 0.5) * 6,
-        y + (Math.random() - 0.5) * 6,
-        Math.cos(angle) * spd,
-        Math.sin(angle) * spd
-      ));
-    }
-  }
-
-  // ─── Toast ────────────────────────────────────────────────────────────────
-  const toast   = document.getElementById('toast');
-  let toastTimer = null;
-
-  function showToast(msg) {
-    toast.textContent = msg;
-    toast.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('show'), 1500);
-  }
-
-  // ─── Render loop ──────────────────────────────────────────────────────────
-  let lastT = 0, fps = 60, frame = 0;
-
-  function loop(t) {
-    const dt = (t - lastT) || 16;
-    lastT    = t;
-    fps      = fps * 0.92 + (1000 / dt) * 0.08;
-    frame++;
-
-    // Fade trail — slight blue tint for depth
-    ctx.fillStyle = 'rgba(0, 1, 12, 0.15)';
-    ctx.fillRect(0, 0, W, H);
-
-    drawConnections();
-
-    for (const p of particles) {
-      p.update();
-      p.draw();
-    }
-
-    drawCursor();
-
-    if (frame % 6 === 0) {
-      document.getElementById('fps').textContent    = Math.round(fps);
-      document.getElementById('pcount').textContent = particles.length;
-    }
-
-    requestAnimationFrame(loop);
-  }
-
-  // ─── Input ────────────────────────────────────────────────────────────────
-  window.addEventListener('resize', resize);
-
-  window.addEventListener('mousemove', e => {
-    mouse.x = e.clientX;
-    mouse.y = e.clientY;
-  });
-
-  window.addEventListener('mousedown',  () => { mouse.down = true;  });
-  window.addEventListener('mouseup',    () => { mouse.down = false; });
-
-  window.addEventListener('touchstart', e => {
-    mouse.down = true;
-    mouse.x    = e.touches[0].clientX;
-    mouse.y    = e.touches[0].clientY;
-  }, { passive: true });
-
-  window.addEventListener('touchmove', e => {
-    e.preventDefault();
-    mouse.x = e.touches[0].clientX;
-    mouse.y = e.touches[0].clientY;
-  }, { passive: false });
-
-  window.addEventListener('touchend', () => { mouse.down = false; });
-
-  window.addEventListener('keydown', e => {
-    const k = e.key.toLowerCase();
-
-    if (k === 'g') {
-      gravityOn = !gravityOn;
-      document.getElementById('grav-badge').style.display = gravityOn ? 'block' : 'none';
-      showToast(gravityOn ? '⬇ Gravity On' : '↔ Gravity Off');
-    }
-
-    if (k === 'c') {
-      particles = [];
-      showToast('Clearing…');
-      setTimeout(() => {
-        for (let i = 0; i < BASE_COUNT; i++) particles.push(new Particle());
-      }, 350);
-    }
-
-    if (k === ' ') {
-      e.preventDefault();
-      burst(mouse.x > 0 ? mouse.x : W / 2, mouse.y > 0 ? mouse.y : H / 2, 45);
-    }
-  });
-
-  // ─── Boot ─────────────────────────────────────────────────────────────────
-  resize();
-  for (let i = 0; i < BASE_COUNT; i++) particles.push(new Particle());
-  requestAnimationFrame(loop);
-
-})();
-</script>
+    <section>
+      <div class="section-label">Experiments</div>
+      <div class="experiments">
+        <a class="card" href="/experiments/particle-field/">
+          <div class="card-dot"></div>
+          <div class="card-body">
+            <div class="card-title">Particle Field</div>
+            <div class="card-desc">Interactive physics simulation</div>
+          </div>
+          <div class="card-arrow">→</div>
+        </a>
+      </div>
+    </section>
+  </main>
 </body>
 </html>
