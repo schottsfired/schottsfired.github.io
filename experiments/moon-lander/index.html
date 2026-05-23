@@ -504,7 +504,7 @@
 
     const altEl=document.getElementById('hud-alt');
     altEl.textContent=alt+' m';
-    altEl.className='hud-val'+(alt<80&&vel>SAFE_VY?.65?' warn':'');
+    altEl.className='hud-val'+(alt<80&&vel>SAFE_VY*0.65?' warn':'');
 
     const velEl=document.getElementById('hud-vel');
     velEl.textContent=vel.toFixed(1)+' m/s';
