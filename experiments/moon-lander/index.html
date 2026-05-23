@@ -73,6 +73,8 @@
       background: rgba(1,5,8,.9);
       backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
       transition: opacity .4s;
+      /* Prevent double-tap zoom on the overlay while still allowing single taps */
+      touch-action: manipulation;
     }
     #overlay.hidden { opacity: 0; pointer-events: none; }
 
@@ -545,7 +547,7 @@
   }
 
   function startGame() {
-    if (W < 10 || H < 10) return;  // not yet sized
+    if (W < 10 || H < 10) resize(); // ensure sized before building terrain
     game.state='playing';
     document.getElementById('overlay').classList.add('hidden');
     for(const k of ['left','up','right']){ctrl[k]=false;held[k]=0;}
@@ -595,8 +597,9 @@
   document.addEventListener('keyup',e=>{const k=keymap[e.key];if(k){ctrl[k]=false;held[k]=0;}});
 
   const ov=document.getElementById('overlay');
-  ov.addEventListener('click',()=>startGame());
-  ov.addEventListener('touchend',e=>{e.preventDefault();startGame();},{passive:false});
+  ov.addEventListener('click', () => startGame());
+  // touchstart responds immediately and prevents the browser's double-tap zoom
+  ov.addEventListener('touchstart', e => { e.preventDefault(); startGame(); }, {passive:false});
 
   // ── Resize — use visualViewport for reliable mobile dimensions ─────────
   function resize() {
@@ -613,13 +616,23 @@
   window.addEventListener('orientationchange', () => setTimeout(resize, 250));
   if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 
-  // ── Init: double-RAF ensures layout is complete before we measure ──────
-  window.addEventListener('load', () => {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      resize();
-      requestAnimationFrame(loop);
-    }));
-  });
+  // ── Init ─────────────────────────────────────────────────────────────
+  // Script is at end of <body> so DOM layout is already computed.
+  // A single rAF is enough; we don't wait for window.load (fonts etc.)
+  // because that can miss the event if resources were cached.
+  function init() {
+    resize();
+    requestAnimationFrame(loop);
+  }
+
+  if (document.readyState === 'complete') {
+    // Already fully loaded (cached page) — run on next frame
+    requestAnimationFrame(init);
+  } else {
+    // Wait for DOM + resources, but also set a hard fallback
+    window.addEventListener('load', () => requestAnimationFrame(init));
+    document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(init));
+  }
 
 })();
 </script>
