@@ -17,7 +17,7 @@
       -webkit-user-select: none; user-select: none;
       -webkit-tap-highlight-color: transparent;
       -webkit-touch-callout: none;
-      /* Do NOT set touch-action:none on body — it suppresses click synthesis on iOS */
+      touch-action: manipulation; /* allows taps, prevents double-tap zoom */
     }
 
     body::after {
@@ -604,11 +604,13 @@
   document.addEventListener('keydown',e=>{const k=keymap[e.key];if(k){e.preventDefault();if(!ctrl[k]){ctrl[k]=true;held[k]=Date.now();}}});
   document.addEventListener('keyup',e=>{const k=keymap[e.key];if(k){ctrl[k]=false;held[k]=0;}});
 
-  // Use the native button for reliable tap-on-mobile. The button element
-  // always fires click from a tap; no touch event wrangling needed.
-  document.getElementById('ov-tap').addEventListener('click', startGame);
-  // Whole-overlay click as fallback (mouse users, desktop)
-  document.getElementById('overlay').addEventListener('click', startGame);
+  // pointerdown fires before click, works in iframes, no 300ms delay.
+  // stopPropagation prevents the overlay listener from double-firing.
+  document.getElementById('ov-tap').addEventListener('pointerdown', function(e) {
+    e.stopPropagation();
+    startGame();
+  });
+  document.getElementById('overlay').addEventListener('pointerdown', startGame);
 
   // ── Resize — use visualViewport for reliable mobile dimensions ─────────
   function resize() {
