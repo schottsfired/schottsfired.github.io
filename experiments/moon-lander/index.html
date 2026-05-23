@@ -17,7 +17,7 @@
       -webkit-user-select: none; user-select: none;
       -webkit-tap-highlight-color: transparent;
       -webkit-touch-callout: none;
-      touch-action: none;
+      /* Do NOT set touch-action:none on body — it suppresses click synthesis on iOS */
     }
 
     body::after {
@@ -88,7 +88,15 @@
     }
     .ov-sub { font-size: 12px; letter-spacing: .08em; color: rgba(0,200,255,.5); text-align: center; max-width: 280px; line-height: 1.7; }
     .ov-score { font-family: 'Orbitron', monospace; font-size: 24px; color: #00e5ff; text-shadow: 0 0 16px rgba(0,200,255,.65); letter-spacing: .08em; }
-    .ov-tap { font-family: 'Orbitron', monospace; font-size: 11px; letter-spacing: .2em; color: rgba(0,200,255,.72); text-shadow: 0 0 9px rgba(0,200,255,.45); animation: blink 1.3s infinite; }
+    .ov-tap {
+      font-family: 'Orbitron', monospace; font-size: 11px; letter-spacing: .2em;
+      color: rgba(0,200,255,.72); text-shadow: 0 0 9px rgba(0,200,255,.45);
+      animation: blink 1.3s infinite;
+      /* Reset button styles */
+      background: none; border: none; cursor: pointer; padding: 8px 16px;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
 
     /* ── Controls ─────────────────────────────────────────────────────────── */
@@ -135,7 +143,7 @@
   <div class="ov-title" id="ov-title">MOON&#10;LANDER</div>
   <div class="ov-sub" id="ov-sub">Guide the lander to the pad.<br>Hold any button for boost thrust.</div>
   <div class="ov-score" id="ov-score"></div>
-  <div class="ov-tap" id="ov-tap">— TAP TO LAUNCH —</div>
+  <button class="ov-tap" id="ov-tap">— TAP TO LAUNCH —</button>
 </div>
 
 <div id="controls">
@@ -596,10 +604,11 @@
   document.addEventListener('keydown',e=>{const k=keymap[e.key];if(k){e.preventDefault();if(!ctrl[k]){ctrl[k]=true;held[k]=Date.now();}}});
   document.addEventListener('keyup',e=>{const k=keymap[e.key];if(k){ctrl[k]=false;held[k]=0;}});
 
-  const ov=document.getElementById('overlay');
-  ov.addEventListener('click', () => startGame());
-  // touchstart responds immediately and prevents the browser's double-tap zoom
-  ov.addEventListener('touchstart', e => { e.preventDefault(); startGame(); }, {passive:false});
+  // Use the native button for reliable tap-on-mobile. The button element
+  // always fires click from a tap; no touch event wrangling needed.
+  document.getElementById('ov-tap').addEventListener('click', startGame);
+  // Whole-overlay click as fallback (mouse users, desktop)
+  document.getElementById('overlay').addEventListener('click', startGame);
 
   // ── Resize — use visualViewport for reliable mobile dimensions ─────────
   function resize() {
@@ -617,22 +626,13 @@
   if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 
   // ── Init ─────────────────────────────────────────────────────────────
-  // Script is at end of <body> so DOM layout is already computed.
-  // A single rAF is enough; we don't wait for window.load (fonts etc.)
-  // because that can miss the event if resources were cached.
-  function init() {
+  // Script is at end of <body> — DOM layout is already computed.
+  // One rAF ensures the browser has painted at least one frame so
+  // visualViewport / innerWidth are reliable. No load event needed.
+  requestAnimationFrame(() => {
     resize();
     requestAnimationFrame(loop);
-  }
-
-  if (document.readyState === 'complete') {
-    // Already fully loaded (cached page) — run on next frame
-    requestAnimationFrame(init);
-  } else {
-    // Wait for DOM + resources, but also set a hard fallback
-    window.addEventListener('load', () => requestAnimationFrame(init));
-    document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(init));
-  }
+  });
 
 })();
 </script>
