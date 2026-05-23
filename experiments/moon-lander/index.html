@@ -555,7 +555,8 @@
   }
 
   function startGame() {
-    if (W < 10 || H < 10) resize(); // ensure sized before building terrain
+    if (game.state === 'playing') return; // guard against double-fire
+    if (W < 10 || H < 10) resize();
     game.state='playing';
     document.getElementById('overlay').classList.add('hidden');
     for(const k of ['left','up','right']){ctrl[k]=false;held[k]=0;}
@@ -604,13 +605,13 @@
   document.addEventListener('keydown',e=>{const k=keymap[e.key];if(k){e.preventDefault();if(!ctrl[k]){ctrl[k]=true;held[k]=Date.now();}}});
   document.addEventListener('keyup',e=>{const k=keymap[e.key];if(k){ctrl[k]=false;held[k]=0;}});
 
-  // pointerdown fires before click, works in iframes, no 300ms delay.
-  // stopPropagation prevents the overlay listener from double-firing.
-  document.getElementById('ov-tap').addEventListener('pointerdown', function(e) {
-    e.stopPropagation();
-    startGame();
-  });
+  // Both pointerdown and click — belt-and-suspenders across browsers/devices.
+  // stopPropagation prevents the overlay listener from also firing.
+  function onLaunch(e) { e.stopPropagation(); startGame(); }
+  document.getElementById('ov-tap').addEventListener('pointerdown', onLaunch);
+  document.getElementById('ov-tap').addEventListener('click',       onLaunch);
   document.getElementById('overlay').addEventListener('pointerdown', startGame);
+  document.getElementById('overlay').addEventListener('click',       startGame);
 
   // ── Resize — use visualViewport for reliable mobile dimensions ─────────
   function resize() {
