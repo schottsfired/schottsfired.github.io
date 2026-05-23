@@ -188,6 +188,7 @@
   const lander = { x:0, y:0, vx:0, vy:0, angle:0, fuel:FUEL_MAX, alive:true };
   const ctrl   = { left:false, up:false, right:false };
   const held   = { left:0, up:0, right:0 };
+  let crashFlash = 0;
   function boosting(k) { return ctrl[k] && held[k] > 0 && (Date.now()-held[k]) > BOOST_MS; }
 
   // ── Terrain ───────────────────────────────────────────────────────────
@@ -283,18 +284,28 @@
     }
   }
   function emitExplosion(x,y) {
-    const cols=['#ff2200','#ff7700','#ffcc00','#ff0055','#ffffff'];
-    for(let i=0;i<65;i++){
-      const a=Math.random()*6.2832,s=0.8+Math.random()*6;
-      ptcls.push(new Particle(x+(Math.random()-0.5)*16,y+(Math.random()-0.5)*16,
-        Math.cos(a)*s,Math.sin(a)*s,cols[i%cols.length],25+Math.random()*32,1.8+Math.random()*2.5));
+    const cols=['#ff2200','#ff7700','#ffcc00','#ff0055','#ffffff','#ff4400'];
+    for(let i=0;i<100;i++){
+      const a=Math.random()*6.2832,s=2+Math.random()*11;
+      ptcls.push(new Particle(x+(Math.random()-0.5)*24,y+(Math.random()-0.5)*24,
+        Math.cos(a)*s,Math.sin(a)*s,cols[Math.floor(Math.random()*cols.length)],35+Math.random()*55,2.5+Math.random()*4.5));
     }
+    setTimeout(()=>{
+      for(let i=0;i<45;i++){
+        const a=Math.random()*6.2832,s=0.5+Math.random()*4;
+        ptcls.push(new Particle(x+(Math.random()-0.5)*44,y+(Math.random()-0.5)*22,
+          Math.cos(a)*s,Math.sin(a)*s,Math.random()>.4?'#ff5500':'#cc1100',55+Math.random()*45,1.5+Math.random()*2.5));
+      }
+    },180);
   }
   function emitLanding(x,y) {
-    for(let i=0;i<28;i++){
-      const a=-Math.PI+Math.random()*Math.PI,s=0.4+Math.random()*2.5;
-      ptcls.push(new Particle(x+(Math.random()-0.5)*36,y,
-        Math.cos(a)*s,Math.sin(a)*s-1.2,'#00e5ff',18+Math.random()*18,1.3+Math.random()));
+    for(let i=0;i<22;i++){
+      const side=i<11?-1:1, spd=0.5+Math.random()*1.6;
+      ptcls.push(new Particle(
+        x+side*(8+Math.random()*18),y,
+        side*spd*(0.8+Math.random()),-(Math.random()*0.4),
+        Math.random()>.5?'#336677':'#1a4455',
+        26+Math.random()*16,0.9+Math.random()*0.7));
     }
   }
 
@@ -538,7 +549,7 @@
   }
 
   function doLand() {
-    lander.alive=false; lander.vx=lander.vy=0;
+    lander.vx=lander.vy=0;
     emitLanding(lander.x,lander.y+19*getScale());
     const score=Math.max(0,500+Math.round(lander.fuel/FUEL_MAX*700)-Math.round(Math.abs(lander.angle)*250));
     game.state='landed'; game.score=score;
@@ -549,6 +560,7 @@
   function doCrash() {
     lander.alive=false;
     emitExplosion(lander.x,lander.y);
+    crashFlash=1.0;
     game.state='crashed';
     showOverlay('SIGNAL\nLOST','linear-gradient(135deg,#ff3355,#ff8800)','rgba(18,0,5,.9)',
       'Lander destroyed. Mission failed.','','— TAP TO RETRY —',1100);
@@ -558,6 +570,7 @@
     if (game.state === 'playing') return; // guard against double-fire
     if (W < 10 || H < 10) resize();
     game.state='playing';
+    crashFlash=0;
     document.getElementById('overlay').classList.add('hidden');
     for(const k of ['left','up','right']){ctrl[k]=false;held[k]=0;}
     buildTerrain();
@@ -582,6 +595,11 @@
     drawFlame();
     drawLander();
     drawVignette();
+
+    if(crashFlash>0){
+      ctx.globalAlpha=crashFlash*0.62; ctx.fillStyle='#ff1100'; ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha=1; crashFlash=Math.max(0,crashFlash-0.036);
+    }
 
     if(game.state==='playing') updateHUD();
 
