@@ -26,11 +26,15 @@
     }
 
     .glass {
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba(8, 10, 28, 0.72);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border: 1px solid rgba(255, 255, 255, 0.09);
       border-radius: 14px;
+    }
+
+    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+      .glass { background: rgba(255, 255, 255, 0.04); }
     }
 
     /* ── Header ── */
@@ -129,19 +133,40 @@
       right: 24px;
       padding: 11px 16px;
       font-size: 11px;
-      color: rgba(255, 255, 255, 0.28);
+      color: rgba(255, 255, 255, 0.55);
       text-align: right;
       line-height: 1.65;
     }
 
     .badge strong {
       display: block;
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
       background: linear-gradient(90deg, #5eead4, #818cf8);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
+    }
+
+    /* ── Mobile: hide keyboard controls, show touch hint ── */
+    .touch-controls { display: none; }
+
+    @media (hover: none) and (pointer: coarse) {
+      .controls { display: none; }
+      .touch-controls {
+        display: flex;
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 10px 20px;
+        align-items: center;
+        gap: 14px;
+        white-space: nowrap;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.38);
+      }
     }
 
     /* ── Gravity toast ── */
@@ -190,6 +215,12 @@
     <div class="ctrl"><span class="key">G</span> Gravity</div>
     <div class="sep"></div>
     <div class="ctrl"><span class="key">C</span> Clear</div>
+  </div>
+
+  <div class="touch-controls glass">
+    <div class="ctrl">Touch &amp; drag to attract</div>
+    <div class="sep"></div>
+    <div class="ctrl">Release for burst</div>
   </div>
 
   <div class="badge glass">
