@@ -122,104 +122,121 @@
   // ── Cat (cute kawaii girl cat) ─────────────────────────────────────────
   // cx,cy = foot position
   function drawCat(cx, cy, frame, jumping, invincible, catnipOn) {
-    // Hit-flicker (not during catnip invincibility)
     if (invincible > 0 && !catnipOn && Math.floor(invincible / 5) % 2 === 1) return;
 
     const f = frame % 2;
 
-    // Catnip aura glow
+    // Catnip aura
     if (catnipOn) {
-      ctx.globalAlpha = 0.2 + 0.12 * Math.abs(Math.sin(game.frame * 0.1));
-      px(cx - 10*PX, cy - 28*PX, 20, 30, '#00EE55');
+      ctx.globalAlpha = 0.18 + 0.10 * Math.abs(Math.sin(game.frame * 0.1));
+      px(cx - 14*PX, cy - 44*PX, 28, 48, '#00EE55');
       ctx.globalAlpha = 1;
     }
 
-    // ── Bow ────────────────────────────────────────────────────────────
-    px(cx - 6*PX, cy - 27*PX, 4, 3, '#FF3399');  // left wing
-    px(cx + 2*PX, cy - 27*PX, 4, 3, '#FF3399');  // right wing
-    px(cx - 2*PX, cy - 27*PX, 4, 3, '#FF88BB');  // centre knot
-    px(cx - 5*PX, cy - 26*PX, 2, 1, '#FF55AA');  // left highlight
-    px(cx + 3*PX, cy - 26*PX, 2, 1, '#FF55AA');  // right highlight
+    // Bow (big, prominent)
+    px(cx - 9*PX,  cy - 40*PX, 6, 5, '#FF1493');
+    px(cx + 3*PX,  cy - 40*PX, 6, 5, '#FF1493');
+    px(cx - 7*PX,  cy - 39*PX, 4, 2, '#FF69B4');
+    px(cx + 4*PX,  cy - 39*PX, 4, 2, '#FF69B4');
+    px(cx - 2*PX,  cy - 39*PX, 4, 4, '#FF85C1');
+    px(cx - 1*PX,  cy - 38*PX, 2, 2, '#FFFFFF');
 
-    // ── Ears ───────────────────────────────────────────────────────────
-    px(cx - 7*PX, cy - 24*PX, 5, 5, '#E8943A');
-    px(cx + 2*PX, cy - 24*PX, 5, 5, '#E8943A');
-    px(cx - 6*PX, cy - 23*PX, 3, 3, '#FF85A1');  // inner left
-    px(cx + 3*PX, cy - 23*PX, 3, 3, '#FF85A1');  // inner right
+    // Ears
+    px(cx - 11*PX, cy - 39*PX, 7, 5, '#F0A060');
+    px(cx + 4*PX,  cy - 39*PX, 7, 5, '#F0A060');
+    px(cx - 10*PX, cy - 38*PX, 4, 3, '#FFAABB');
+    px(cx + 6*PX,  cy - 38*PX, 4, 3, '#FFAABB');
 
-    // ── Head (wide, round, chubby) ─────────────────────────────────────
-    px(cx - 7*PX, cy - 22*PX, 14, 13, '#E8943A');
+    // Head — BIG chibi (head ~60% of total height)
+    px(cx - 10*PX, cy - 36*PX, 20, 23, '#F0A060');
+    px(cx - 9*PX,  cy - 35*PX, 18, 21, '#FFF0DC');  // face
 
-    // ── Face ───────────────────────────────────────────────────────────
-    px(cx - 6*PX, cy - 21*PX, 12, 11, '#FFF0DC');
+    // Eyes — huge anime style (7w x 10h each)
+    // Left eyelashes
+    px(cx - 10*PX, cy - 33*PX, 9, 1, '#1A1A2E');
+    px(cx - 10*PX, cy - 33*PX, 1, 3, '#1A1A2E');
+    // Left eye body
+    px(cx - 9*PX,  cy - 32*PX, 7, 10, '#1A1A2E');
+    // Left iris (two-tone)
+    px(cx - 8*PX,  cy - 31*PX, 5, 4, '#2266CC');
+    px(cx - 8*PX,  cy - 27*PX, 5, 3, '#55AAFF');
+    // Left pupil
+    px(cx - 7*PX,  cy - 30*PX, 3, 6, '#08081A');
+    // Left shine
+    px(cx - 8*PX,  cy - 31*PX, 3, 3, '#FFFFFF');
+    px(cx - 6*PX,  cy - 24*PX, 2, 1, '#AADDFF');
+    // Left bottom lash
+    px(cx - 9*PX,  cy - 23*PX, 7, 1, '#2A2A3E');
 
-    // ── Eyes — BIG kawaii (3×4 px each) ───────────────────────────────
-    // Left eye — blue iris
-    px(cx - 5*PX, cy - 19*PX, 4, 5, '#3366CC');  // iris fill
-    px(cx - 5*PX, cy - 19*PX, 4, 1, '#1A1A2A');  // top lash
-    px(cx - 5*PX, cy - 15*PX, 4, 1, '#1A1A2A');  // bottom line
-    px(cx - 5*PX, cy - 18*PX, 1, 3, '#1A1A2A');  // left edge
-    px(cx - 2*PX, cy - 18*PX, 1, 3, '#1A1A2A');  // right edge
-    px(cx - 4*PX, cy - 17*PX, 1, 2, '#1A1A2A');  // pupil
-    px(cx - 5*PX, cy - 19*PX, 1, 1, '#FFFFFF');  // top-left shine
-    px(cx - 3*PX, cy - 15*PX, 1, 1, '#AACCFF');  // bottom glint
+    // Right eyelashes
+    px(cx + 1*PX,  cy - 33*PX, 9, 1, '#1A1A2E');
+    px(cx + 9*PX,  cy - 33*PX, 1, 3, '#1A1A2E');
+    // Right eye body
+    px(cx + 2*PX,  cy - 32*PX, 7, 10, '#1A1A2E');
+    // Right iris
+    px(cx + 3*PX,  cy - 31*PX, 5, 4, '#2266CC');
+    px(cx + 3*PX,  cy - 27*PX, 5, 3, '#55AAFF');
+    // Right pupil
+    px(cx + 4*PX,  cy - 30*PX, 3, 6, '#08081A');
+    // Right shine
+    px(cx + 2*PX,  cy - 31*PX, 3, 3, '#FFFFFF');
+    px(cx + 5*PX,  cy - 24*PX, 2, 1, '#AADDFF');
+    // Right bottom lash
+    px(cx + 2*PX,  cy - 23*PX, 7, 1, '#2A2A3E');
 
-    // Right eye
-    px(cx + 1*PX, cy - 19*PX, 4, 5, '#3366CC');
-    px(cx + 1*PX, cy - 19*PX, 4, 1, '#1A1A2A');
-    px(cx + 1*PX, cy - 15*PX, 4, 1, '#1A1A2A');
-    px(cx + 1*PX, cy - 18*PX, 1, 3, '#1A1A2A');
-    px(cx + 4*PX, cy - 18*PX, 1, 3, '#1A1A2A');
-    px(cx + 2*PX, cy - 17*PX, 1, 2, '#1A1A2A');  // pupil
-    px(cx + 1*PX, cy - 19*PX, 1, 1, '#FFFFFF');  // shine
-    px(cx + 3*PX, cy - 15*PX, 1, 1, '#AACCFF');  // glint
-
-    // ── Blush ──────────────────────────────────────────────────────────
-    ctx.globalAlpha = 0.5;
-    px(cx - 6*PX, cy - 15*PX, 3, 1, '#FF88AA');
-    px(cx + 3*PX, cy - 15*PX, 3, 1, '#FF88AA');
+    // Blush (big round cheeks)
+    ctx.globalAlpha = 0.65;
+    px(cx - 10*PX, cy - 26*PX, 5, 3, '#FF88AA');
+    px(cx + 5*PX,  cy - 26*PX, 5, 3, '#FF88AA');
     ctx.globalAlpha = 1;
 
-    // ── Nose + Mouth ───────────────────────────────────────────────────
-    px(cx - 1*PX, cy - 14*PX, 2, 1, '#FF85A1');
-    px(cx - 2*PX, cy - 13*PX, 1, 1, '#C06060');
-    px(cx + 1*PX, cy - 13*PX, 1, 1, '#C06060');
+    // Nose
+    px(cx - 1*PX, cy - 21*PX, 2, 2, '#FF85A1');
 
-    // ── Whiskers ───────────────────────────────────────────────────────
-    px(cx - 9*PX, cy - 16*PX, 3, 1, '#FFE0C0');
-    px(cx - 9*PX, cy - 14*PX, 3, 1, '#FFE0C0');
-    px(cx + 6*PX, cy - 16*PX, 3, 1, '#FFE0C0');
-    px(cx + 6*PX, cy - 14*PX, 3, 1, '#FFE0C0');
+    // Mouth (w-shaped smile)
+    px(cx - 3*PX, cy - 19*PX, 1, 1, '#C06060');
+    px(cx - 2*PX, cy - 18*PX, 1, 1, '#C06060');
+    px(cx - 1*PX, cy - 19*PX, 2, 1, '#C06060');
+    px(cx + 1*PX, cy - 18*PX, 1, 1, '#C06060');
+    px(cx + 2*PX, cy - 19*PX, 1, 1, '#C06060');
 
-    // ── Body (wide, chubby) ────────────────────────────────────────────
-    px(cx - 7*PX, cy - 10*PX, 14, 8, '#E8943A');
-    px(cx - 6*PX, cy -  8*PX, 10, 1, '#C06020');  // stripe
-    px(cx - 5*PX, cy -  5*PX,  8, 1, '#C06020');  // stripe
+    // Whiskers
+    px(cx - 14*PX, cy - 26*PX, 4, 1, '#FFE0C0');
+    px(cx - 14*PX, cy - 24*PX, 4, 1, '#FFE0C0');
+    px(cx + 10*PX, cy - 26*PX, 4, 1, '#FFE0C0');
+    px(cx + 10*PX, cy - 24*PX, 4, 1, '#FFE0C0');
 
-    // ── Tail ───────────────────────────────────────────────────────────
-    const tb = jumping ? -5 : (f === 0 ? 0 : 1);
-    px(cx + 7*PX, cy - 9*PX, 3, 6, '#E8943A');
-    px(cx + 8*PX, (cy - 11 + tb) * PX, 2, 3, '#C06020');
+    // Body (small/chibi — head dominates)
+    px(cx - 7*PX, cy - 13*PX, 14, 9, '#F0A060');
+    px(cx - 6*PX, cy - 11*PX, 10, 1, '#D07030');
+    px(cx - 4*PX, cy - 8*PX,   7, 1, '#D07030');
 
-    // ── Legs (short + stubby) ──────────────────────────────────────────
+    // Tail (C-curve)
+    const tb = jumping ? 3 : (f === 0 ? 0 : 1);
+    px(cx + 7*PX, cy - 13*PX, 2, 7, '#F0A060');
+    px(cx + 8*PX, cy - (18-tb)*PX, 4, 2, '#F0A060');
+    px(cx + 9*PX, cy - (21-tb)*PX, 3, 4, '#F0A060');
+    px(cx + 8*PX, cy - (23-tb)*PX, 4, 2, '#D07030');
+
+    // Legs (short, cute)
     if (jumping) {
-      px(cx - 6*PX, cy - 4*PX, 4, 2, '#E8943A');
-      px(cx + 2*PX, cy - 4*PX, 4, 2, '#E8943A');
+      px(cx - 6*PX, cy - 5*PX, 4, 3, '#F0A060');
+      px(cx + 2*PX, cy - 5*PX, 4, 3, '#F0A060');
     } else {
       const la = f === 0 ? 0 : 1;
-      px(cx - 6*PX, cy - 2*PX, 4, 3 + la,     '#E8943A');
-      px(cx + 2*PX, cy - 2*PX, 4, 3 - la + 1, '#E8943A');
-      px(cx - 7*PX, cy + (1 + la) * PX, 5, 2, '#C87030');
-      px(cx + 2*PX, cy + (2 - la) * PX, 5, 2, '#C87030');
+      px(cx - 6*PX, cy - 4*PX, 4, 4 + la,   '#F0A060');
+      px(cx + 2*PX, cy - 4*PX, 4, 5 - la,   '#F0A060');
+      px(cx - 7*PX, cy + la*PX,       5, 2, '#D08040');
+      px(cx + 2*PX, cy + (1-la)*PX,   5, 2, '#D08040');
     }
 
-    // ── Catnip orbiting sparkles ───────────────────────────────────────
+    // Catnip sparkles
     if (catnipOn) {
       const cols = ['#44FF44', '#AAFFAA', '#FFFF66', '#44FFCC'];
       for (let i = 0; i < 4; i++) {
         const a = game.frame * 0.09 + i * Math.PI * 0.5;
         ctx.fillStyle = cols[i];
-        ctx.fillRect(r(cx + Math.cos(a) * 13 * PX), r(cy - 11*PX + Math.sin(a) * 8 * PX), 4, 4);
+        ctx.fillRect(r(cx + Math.cos(a) * 17 * PX), r(cy - 20*PX + Math.sin(a) * 13 * PX), 5, 5);
       }
     }
   }
@@ -522,7 +539,7 @@
       f.y += f.vy;
       f.ft++; if (f.ft >= 7) { f.ft = 0; f.frame ^= 1; }
       const cl = cat.x - 10*PX, cr = cat.x + 10*PX;
-      const ct = cat.y - 28*PX, cb = cat.y + 4*PX;
+      const ct = cat.y - 37*PX, cb = cat.y + 4*PX;
       if (f.x > cl && f.x < cr && f.y > ct && f.y < cb) {
         if (f.type === 'catnip') {
           catnipTimer = 1200; // 20 seconds @ 60fps
