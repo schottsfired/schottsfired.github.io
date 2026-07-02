@@ -115,26 +115,32 @@
     .cell { background: rgba(255, 255, 255, 0.035); }
 
     .tile {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
       transition: transform 0.11s ease-out;
       will-change: transform;
       z-index: 2;
     }
 
-    .tile.spawn { animation: spawn 0.16s ease-out; }
-    @keyframes spawn {
-      from { scale: 0.4; opacity: 0; }
-      to   { scale: 1;   opacity: 1; }
+    .tile-inner {
+      width: 100%;
+      height: 100%;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
     }
 
-    .tile.pop { animation: pop 0.18s ease-out; }
+    .tile.spawn .tile-inner { animation: spawn 0.16s ease-out; }
+    @keyframes spawn {
+      from { transform: scale(0.4); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+
+    .tile.pop .tile-inner { animation: pop 0.18s ease-out; }
     @keyframes pop {
-      0%   { scale: 1; }
-      45%  { scale: 1.22; }
-      100% { scale: 1; }
+      0%   { transform: scale(1); }
+      45%  { transform: scale(1.22); }
+      100% { transform: scale(1); }
     }
 
     /* ── Footer ── */
@@ -311,6 +317,7 @@
     }
     for (const t of tiles.values()) {
       sizeTile(t.el);
+      styleTile(t.el, t.value);
       moveTile(t);
     }
   }
@@ -336,21 +343,23 @@
 
   // ── Tile visuals ──────────────────────────────────────────────────────
   function styleTile(el, v) {
+    const inner = el.firstChild;
     const step = Math.log2(v); // 1..11+
     const hue = 175 + step * 16;
     const light = Math.min(46 + step * 2.2, 62);
-    el.style.background = `linear-gradient(140deg, hsl(${hue},72%,${light}%), hsl(${hue + 22},72%,${light - 9}%))`;
-    el.style.boxShadow = step >= 6
+    inner.style.background = `linear-gradient(140deg, hsl(${hue},72%,${light}%), hsl(${hue + 22},72%,${light - 9}%))`;
+    inner.style.boxShadow = step >= 6
       ? `0 0 ${6 + step * 2.4}px hsla(${hue},90%,60%,0.55)`
       : '0 2px 8px rgba(0,0,0,0.35)';
-    el.style.color = step < 3 ? 'rgba(10,14,30,0.85)' : '#fff';
-    el.style.fontSize = (v < 100 ? cellSize * 0.42 : v < 1000 ? cellSize * 0.34 : cellSize * 0.27) + 'px';
-    el.textContent = v;
+    inner.style.color = step < 3 ? 'rgba(10,14,30,0.85)' : '#fff';
+    inner.style.fontSize = (v < 100 ? cellSize * 0.42 : v < 1000 ? cellSize * 0.34 : cellSize * 0.27) + 'px';
+    inner.textContent = v;
   }
 
   function spawnTile(r, c, v) {
     const el = document.createElement('div');
     el.className = 'tile spawn';
+    el.appendChild(document.createElement('div')).className = 'tile-inner';
     sizeTile(el);
     styleTile(el, v);
     const t = { id: nextId++, el, value: v, r, c };
@@ -374,6 +383,7 @@
 
   // ── Game ──────────────────────────────────────────────────────────────
   function newGame() {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     for (const t of tiles.values()) t.el.remove();
     tiles.clear();
     grid = Array.from({ length: N }, () => Array(N).fill(null));

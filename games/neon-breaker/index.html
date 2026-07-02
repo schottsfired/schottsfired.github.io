@@ -311,6 +311,7 @@
   }
 
   function newGame() {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     score = 0; lives = 3; level = 1;
     paddle = makePaddle();
     drops = []; parts = []; trailDots = [];
