@@ -2,188 +2,514 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>David Schott</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="David Schott — arcade games and interactive toys built for the web. No downloads, no ads, just play.">
+  <meta name="theme-color" content="#07090f">
+  <title>David Schott · Games</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
       --bg:           #07090f;
-      --surface:      rgba(255, 255, 255, 0.03);
-      --border:       rgba(255, 255, 255, 0.07);
-      --border-hover: rgba(255, 255, 255, 0.15);
-      --text:         rgba(255, 255, 255, 0.85);
-      --muted:        rgba(255, 255, 255, 0.35);
+      --surface:      rgba(13, 17, 28, 0.55);
+      --border:       rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(94, 234, 212, 0.35);
+      --text:         rgba(255, 255, 255, 0.87);
+      --muted:        rgba(255, 255, 255, 0.38);
+      --teal:   #5eead4;
+      --indigo: #818cf8;
+      --pink:   #f472b6;
     }
+
+    html { -webkit-text-size-adjust: 100%; }
 
     body {
       min-height: 100dvh;
-      background-color: var(--bg);
-      background-image:
-        radial-gradient(ellipse 90% 55% at 50% -10%, rgba(94, 234, 212, 0.05) 0%, transparent 70%),
-        radial-gradient(ellipse 55% 40% at 90% 110%, rgba(129, 140, 248, 0.05) 0%, transparent 70%);
+      background: var(--bg);
       color: var(--text);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 64px 24px;
+      overflow-x: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── Particle canvas backdrop ── */
+    #field {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      display: block;
     }
 
     main {
+      position: relative;
+      z-index: 1;
       width: 100%;
-      max-width: 540px;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: max(9vh, 56px) 20px 48px;
     }
 
-    /* ── Name ── */
+    /* ── Hero ── */
+    .hero { margin-bottom: 56px; text-align: center; }
+
     .name {
-      font-size: clamp(38px, 7vw, 54px);
-      font-weight: 600;
-      letter-spacing: -1.5px;
-      line-height: 1;
-      margin-bottom: 10px;
-      background: linear-gradient(135deg, #5eead4 0%, #818cf8 52%, #f472b6 100%);
+      display: inline-block;
+      font-size: clamp(40px, 9vw, 64px);
+      font-weight: 700;
+      letter-spacing: -2px;
+      line-height: 1.05;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      background: linear-gradient(120deg, var(--teal), var(--indigo), var(--pink), var(--teal));
+      background-size: 300% 100%;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
+      animation: shimmer 9s linear infinite;
+    }
+
+    @keyframes shimmer {
+      to { background-position: 300% 0; }
     }
 
     .tagline {
-      font-size: 14px;
+      margin-top: 12px;
+      font-size: 15px;
       font-weight: 300;
       color: var(--muted);
-      margin-bottom: 60px;
       letter-spacing: 0.01em;
     }
 
-    /* ── Section ── */
+    .tagline .spark { color: rgba(94, 234, 212, 0.75); }
+
+    /* ── Section label ── */
     .section-label {
-      font-size: 10px;
-      font-weight: 500;
-      letter-spacing: 0.13em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 14px;
       display: flex;
       align-items: center;
       gap: 14px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
     }
 
+    .section-label::before,
     .section-label::after {
       content: '';
       flex: 1;
       height: 1px;
-      background: var(--border);
+      background: linear-gradient(90deg, transparent, var(--border));
+    }
+    .section-label::after {
+      background: linear-gradient(90deg, var(--border), transparent);
     }
 
-    /* ── Cards ── */
-    .experiments {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+    /* ── Game grid ── */
+    .games {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 560px) {
+      .games { grid-template-columns: 1fr; }
     }
 
     .card {
+      position: relative;
       display: flex;
       align-items: center;
-      gap: 16px;
-      padding: 18px 20px;
+      gap: 15px;
+      padding: 18px 18px;
+      min-height: 84px;
       background: var(--surface);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 16px;
       text-decoration: none;
       color: inherit;
-      transition: background 0.17s, border-color 0.17s, transform 0.17s;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+      overflow: hidden;
     }
 
-    .card:hover {
-      background: rgba(255, 255, 255, 0.055);
-      border-color: var(--border-hover);
-      transform: translateX(4px);
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(94, 234, 212, 0.08), transparent 65%);
+      opacity: 0;
+      transition: opacity 0.25s;
+      pointer-events: none;
     }
 
-    .card-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
+    @media (hover: hover) {
+      .card:hover {
+        border-color: var(--border-hover);
+        transform: translateY(-3px);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 24px rgba(94, 234, 212, 0.06);
+      }
+      .card:hover::before { opacity: 1; }
+      .card:hover .card-icon { transform: scale(1.12) rotate(-4deg); }
+    }
+
+    .card:active { transform: scale(0.98); }
+
+    .card-icon {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
       flex-shrink: 0;
-      background: linear-gradient(135deg, #5eead4, #818cf8);
-      box-shadow: 0 0 10px rgba(94, 234, 212, 0.45);
+      font-size: 25px;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      transition: transform 0.25s;
     }
 
     .card-body { flex: 1; min-width: 0; }
 
     .card-title {
-      font-size: 14px;
-      font-weight: 500;
-      color: rgba(255, 255, 255, 0.88);
-      margin-bottom: 2px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.92);
+      margin-bottom: 3px;
+    }
+
+    .tag {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 2.5px 7px;
+      border-radius: 99px;
+      text-transform: uppercase;
+    }
+
+    .tag-new {
+      color: #0b1020;
+      background: linear-gradient(90deg, var(--teal), var(--indigo));
+    }
+
+    .tag-fav {
+      color: var(--pink);
+      border: 1px solid rgba(244, 114, 182, 0.4);
     }
 
     .card-desc {
-      font-size: 12px;
+      font-size: 12.5px;
+      line-height: 1.45;
       color: var(--muted);
       font-weight: 300;
     }
 
-    .card-arrow {
-      font-size: 15px;
-      color: var(--muted);
-      flex-shrink: 0;
-      transition: color 0.17s, transform 0.17s;
+    /* ── Footer ── */
+    footer {
+      margin-top: 64px;
+      text-align: center;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.26);
+      font-weight: 300;
+      line-height: 1.9;
     }
 
-    .card:hover .card-arrow {
-      color: rgba(255, 255, 255, 0.55);
-      transform: translateX(3px);
+    footer .heart { color: rgba(244, 114, 182, 0.6); }
+
+    .hint {
+      margin-top: 4px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.18);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .name { animation: none; }
+      .card, .card-icon { transition: none; }
     }
   </style>
 </head>
 <body>
-  <main>
-    <h1 class="name">David Schott</h1>
-    <p class="tagline">Experiments on the web.</p>
+<canvas id="field" aria-hidden="true"></canvas>
 
-    <section>
-      <div class="section-label">Experiments</div>
-      <div class="experiments">
-        <a class="card" href="/experiments/particle-field/">
-          <div class="card-dot"></div>
-          <div class="card-body">
-            <div class="card-title">Particle Field</div>
-            <div class="card-desc">Interactive physics simulation</div>
-          </div>
-          <div class="card-arrow">→</div>
-        </a>
-        <a class="card" href="/experiments/moon-lander/">
-          <div class="card-dot"></div>
-          <div class="card-body">
-            <div class="card-title">Moon Lander</div>
-            <div class="card-desc">Tron-style lunar landing game</div>
-          </div>
-          <div class="card-arrow">→</div>
-        </a>
-        <a class="card" href="/experiments/nine-lives-buffet/">
-          <div class="card-dot"></div>
-          <div class="card-body">
-            <div class="card-title">Nine Lives Buffet</div>
-            <div class="card-desc">Catch fish, dodge dogs</div>
-          </div>
-          <div class="card-arrow">→</div>
-        </a>
-        <a class="card" href="/experiments/pepes-feast/">
-          <div class="card-dot"></div>
-          <div class="card-body">
-            <div class="card-title">Pepe's Feast</div>
-            <div class="card-desc">NYC rat catches food, dodges trains</div>
-          </div>
-          <div class="card-arrow">→</div>
-        </a>
-      </div>
-    </section>
-  </main>
+<main>
+  <header class="hero">
+    <h1 class="name" id="name" title="Go ahead, click me">David Schott</h1>
+    <p class="tagline">A tiny arcade on the web <span class="spark">✦</span> no downloads, just play</p>
+  </header>
+
+  <section aria-label="Games">
+    <div class="section-label">Games</div>
+    <div class="games">
+      <a class="card" href="/games/particle-field/">
+        <div class="card-icon">🌌</div>
+        <div class="card-body">
+          <div class="card-title">Particle Field <span class="tag tag-fav">♥ Fav</span></div>
+          <div class="card-desc">Physics toy — you're playing it right now</div>
+        </div>
+      </a>
+      <a class="card" href="/games/skystack/">
+        <div class="card-icon">🏗️</div>
+        <div class="card-body">
+          <div class="card-title">Skystack <span class="tag tag-new">New</span></div>
+          <div class="card-desc">Tap to stack a 3D tower into the clouds</div>
+        </div>
+      </a>
+      <a class="card" href="/games/neon-breaker/">
+        <div class="card-icon">🧱</div>
+        <div class="card-body">
+          <div class="card-title">Neon Breaker <span class="tag tag-new">New</span></div>
+          <div class="card-desc">Smash bricks, catch power-ups, feel the juice</div>
+        </div>
+      </a>
+      <a class="card" href="/games/2048/">
+        <div class="card-icon">🔢</div>
+        <div class="card-body">
+          <div class="card-title">2048 Nebula <span class="tag tag-new">New</span></div>
+          <div class="card-desc">Swipe to merge tiles and chase the glow</div>
+        </div>
+      </a>
+      <a class="card" href="/games/moon-lander/">
+        <div class="card-icon">🚀</div>
+        <div class="card-body">
+          <div class="card-title">Moon Lander</div>
+          <div class="card-desc">Tron-style lunar landing — gentle does it</div>
+        </div>
+      </a>
+      <a class="card" href="/games/nine-lives-buffet/">
+        <div class="card-icon">🐱</div>
+        <div class="card-body">
+          <div class="card-title">Nine Lives Buffet</div>
+          <div class="card-desc">Catch fish, dodge dogs, stay adorable</div>
+        </div>
+      </a>
+      <a class="card" href="/games/pepes-feast/">
+        <div class="card-icon">🐀</div>
+        <div class="card-body">
+          <div class="card-title">Pepe's Feast</div>
+          <div class="card-desc">A NYC rat's vertical quest for pizza</div>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <footer>
+    Built with Claude <span class="heart">♥</span>
+    <div class="hint">psst — drag the background, or click my name</div>
+  </footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  const canvas = document.getElementById('field');
+  const ctx = canvas.getContext('2d');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let W = 0, H = 0, DPR = 1;
+  let particles = [];
+  const pointer = { x: -9999, y: -9999, down: false };
+
+  const CONN_D = 110;
+  const CONN_D_SQ = CONN_D * CONN_D;
+  const POINT_R = 160;
+  const POINT_R_SQ = POINT_R * POINT_R;
+
+  function targetCount() {
+    // Adaptive density: fewer particles on small screens
+    return Math.max(45, Math.min(150, Math.round((W * H) / 11000)));
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const n = targetCount();
+    while (particles.length < n) particles.push(makeParticle());
+    if (particles.length > n) particles.length = n;
+  }
+
+  function makeParticle(x, y, vx, vy) {
+    return {
+      x: x ?? Math.random() * W,
+      y: y ?? Math.random() * H,
+      vx: vx ?? (Math.random() - 0.5) * 0.9,
+      vy: vy ?? (Math.random() - 0.5) * 0.9,
+      r: Math.random() * 1.7 + 0.6,
+      hue: 170 + Math.random() * 140
+    };
+  }
+
+  function burst(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      if (particles.length >= targetCount() + 90) particles.shift();
+      const a = (i / n) * 6.2832 + Math.random() * 0.5;
+      const s = Math.random() * 5.5 + 2;
+      particles.push(makeParticle(x, y, Math.cos(a) * s, Math.sin(a) * s));
+    }
+  }
+
+  function step(p) {
+    const dx = pointer.x - p.x;
+    const dy = pointer.y - p.y;
+    const dSq = dx * dx + dy * dy;
+
+    if (dSq < POINT_R_SQ && dSq > 0.01) {
+      const d = Math.sqrt(dSq);
+      const t = 1 - d / POINT_R;
+      const f = t * t * (pointer.down ? 2.6 : -1.3) * 0.11;
+      p.vx += (dx / d) * f;
+      p.vy += (dy / d) * f;
+    }
+
+    p.vx *= 0.977;
+    p.vy *= 0.977;
+
+    const spd = Math.hypot(p.vx, p.vy);
+    if (spd > 11) { p.vx = p.vx / spd * 11; p.vy = p.vy / spd * 11; }
+    if (spd < 0.18) {
+      p.vx += (Math.random() - 0.5) * 0.06;
+      p.vy += (Math.random() - 0.5) * 0.06;
+    }
+
+    p.x += p.vx;
+    p.y += p.vy;
+
+    if (p.x < -10) p.x += W + 20;
+    if (p.x > W + 10) p.x -= W + 20;
+    if (p.y < -10) p.y += H + 20;
+    if (p.y > H + 10) p.y -= H + 20;
+  }
+
+  let running = true;
+
+  function loop() {
+    if (!running) return;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Faint ambient glows
+    ctx.globalAlpha = 1;
+
+    // Connections
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < particles.length - 1; i++) {
+      const a = particles[i];
+      for (let j = i + 1; j < particles.length; j++) {
+        const b = particles[j];
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dSq = dx * dx + dy * dy;
+        if (dSq < CONN_D_SQ) {
+          const alpha = (1 - Math.sqrt(dSq) / CONN_D) * 0.16;
+          ctx.strokeStyle = `hsla(${(a.hue + b.hue) * 0.5},75%,72%,${alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Particles
+    for (const p of particles) {
+      step(p);
+      const spd = Math.hypot(p.vx, p.vy);
+      const h = p.hue + spd * 12;
+      ctx.fillStyle = `hsla(${h},95%,${62 + spd * 3}%,0.85)`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r + spd * 0.1, 0, 6.2832);
+      ctx.fill();
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  function drawStatic() {
+    // Reduced motion: single calm frame of dots + lines
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineWidth = 0.5;
+    for (const p of particles) {
+      ctx.fillStyle = `hsla(${p.hue},90%,64%,0.6)`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  // ── Input (window-level so cards stay clickable) ──
+  window.addEventListener('pointermove', e => {
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+  }, { passive: true });
+
+  window.addEventListener('pointerdown', e => {
+    pointer.down = true;
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+    // Burst only when tapping empty space (not links/cards)
+    if (!e.target.closest('a') && e.target.id !== 'name') {
+      burst(e.clientX, e.clientY, 22);
+    }
+  }, { passive: true });
+
+  window.addEventListener('pointerup', () => { pointer.down = false; }, { passive: true });
+  window.addEventListener('pointercancel', () => { pointer.down = false; }, { passive: true });
+
+  // Name easter egg: fireworks
+  document.getElementById('name').addEventListener('click', function () {
+    const r = this.getBoundingClientRect();
+    burst(r.left + r.width * 0.25, r.top + r.height * 0.5, 30);
+    burst(r.left + r.width * 0.75, r.top + r.height * 0.5, 30);
+    this.style.transform = 'scale(1.04)';
+    setTimeout(() => { this.style.transform = ''; this.style.transition = 'transform .3s'; }, 120);
+  });
+
+  // Card glow follows pointer
+  if (window.matchMedia('(hover: hover)').matches) {
+    document.querySelectorAll('.card').forEach(card => {
+      card.addEventListener('pointermove', e => {
+        const r = card.getBoundingClientRect();
+        card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%');
+        card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
+      });
+    });
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      running = false;
+    } else if (!reduceMotion && !running) {
+      running = true;
+      requestAnimationFrame(loop);
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    resize();
+    if (reduceMotion) drawStatic();
+  });
+
+  resize();
+  if (reduceMotion) {
+    drawStatic();
+  } else {
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
 </body>
 </html>

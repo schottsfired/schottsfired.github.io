@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Pepe's Feast</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐀</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #0A080F;
+      touch-action: none;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    canvas { display: block; position: fixed; top: 0; left: 0; }
+  </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<a id="home-link" href="/" style="position:fixed;top:10px;left:10px;z-index:50;font-family:'Press Start 2P',monospace;font-size:9px;color:rgba(255,255,255,.55);text-decoration:none;padding:8px 10px;background:rgba(10,8,15,.6);border:1px solid rgba(255,255,255,.18);border-radius:6px">‹ HOME</a>
+<script>
+(function () {
+  'use strict';
+
+  const canvas = document.getElementById('canvas');
+  const ctx    = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const R = Math.round;
+
+  let W = 0, H = 0;
+  const PX = 3;  // 1 game-px = 3 canvas-px
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  const rand  = (a, b) => a + Math.random() * (b - a);
+  const irand = (a, b) => Math.floor(rand(a, b));
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  function blk(x, y, w, h, col) {
+    ctx.fillStyle = col;
+    ctx.fillRect(R(x), R(y), R(w * PX), R(h * PX));
+  }
+
+  // ── Physics constants ────────────────────────────────────────────────────
+  const GRAVITY   = 0.5;
+  const JUMP_V    = -14;
+  const RUN_SPD   = 5;
+  const MAX_FALL  = 15;
+
+  // ── Game state ───────────────────────────────────────────────────────────
+  let screen  = 'title'; // title | playing | complete | gameover
+  const homeLink = document.getElementById('home-link');
+  function setScreen(s) {
+    screen = s;
+    homeLink.style.display = s === 'playing' ? 'none' : 'block';
+  }
+  let lvl     = 1;
+  let score   = 0;
+  let hi      = 0;
+  let lives   = 6;
+  let gFrame  = 0;
+
+  // World / camera
+  let LEVEL_H  = 0;
+  let GOAL_Y   = 0;
+  let camY     = 0;   // world-Y of screen top
+
+  function screenY(wy) { return wy - camY; }
+
+  // ── Objects ──────────────────────────────────────────────────────────────
+  let platforms = [];
+  let foods     = [];
+  let cats      = [];
+  let sparks    = [];
+  let floats    = [];
+  let bgItems   = [];
+
+  // ── Player ───────────────────────────────────────────────────────────────
+  const P = {
+    x: 0, y: 0,          // world coords; y = feet
+    vx: 0, vy: 0,
+    onGround: false,
+    canDbl: false,
+    facing: 1,            // 1 = right, -1 = left
+    frame: 0, ft: 0,
+    inv: 0,
+  };
+
+  // ── Controls ─────────────────────────────────────────────────────────────
+  const ctrl = { left: false, right: false };
+  let jumpQ   = 0;   // frames of buffered jump remaining
+  const keys  = {};
+
+  const touches = new Map();
+  let BL = {}, BR = {}, BJ = {}; // button hit zones
+
+  function setBtns() {
+    const br = 32;
+    BL = { x: 52,     y: H - 60, r: br };
+    BR = { x: 130,    y: H - 60, r: br };
+    BJ = { x: W - 65, y: H - 60, r: br };
+  }
+
+  function inBtn(tx, ty, b) {
+    return Math.hypot(tx - b.x, ty - b.y) <= b.r + 14;
+  }
+
+  function syncCtrl() {
+    ctrl.left = ctrl.right = false;
+    for (const [, t] of touches) {
+      if (inBtn(t.x, t.y, BL)) ctrl.left  = true;
+      if (inBtn(t.x, t.y, BR)) ctrl.right = true;
+    }
+    if (keys['ArrowLeft']  || keys['a']) ctrl.left  = true;
+    if (keys['ArrowRight'] || keys['d']) ctrl.right = true;
+  }
+
+  document.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') {
+      e.preventDefault();
+      if (screen === 'playing') jumpQ = 10;
+    }
+  });
+  document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+      if (screen !== 'playing') { handleMenuTap(); return; }
+      if (inBtn(t.clientX, t.clientY, BJ)) jumpQ = 10;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches)
+      touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) touches.delete(t.identifier);
+  }, { passive: false });
+
+  canvas.addEventListener('pointerdown', e => {
+    if (screen !== 'playing') handleMenuTap();
+  });
+
+  function handleMenuTap() {
+    if (screen === 'title')    { startGame(); }
+    else if (screen === 'complete') { nextLevel(); }
+    else if (screen === 'gameover') { startGame(); }
+  }
+
+  // ── Level generation ─────────────────────────────────────────────────────
+  function genLevel(n) {
+    platforms = []; foods = []; cats = []; sparks = []; floats = []; bgItems = [];
+
+    LEVEL_H = H * (4 + n * 0.5);
+    GOAL_Y  = 80;
+
+    // Ground platform
+    platforms.push(mkPlat(0, LEVEL_H - 30, W, 'concrete', false));
+
+    // Build upward
+    let lastY = LEVEL_H - 30;
+    let count = 0;
+    const maxPlats = 45;
+
+    while (lastY > GOAL_Y + 160 && count < maxPlats) {
+      const gap  = rand(80, 110 + n * 4);
+      const newY = lastY - gap;
+      if (newY < GOAL_Y + 120) break;
+
+      // 1–3 platforms at this height row
+      const num  = irand(1, Math.min(3, 2 + Math.floor(n / 2)));
+      const used = distributeX(num, n);
+
+      for (const { x, w } of used) {
+        const type   = ['concrete', 'train', 'beam', 'grate'][irand(0, 4)];
+        const moving = n >= 2 && Math.random() < 0.12 + n * 0.04;
+        const p      = mkPlat(x, newY, w, type, moving);
+        platforms.push(p);
+
+        // Food on platform
+        if (Math.random() > 0.3 && w > 45) {
+          const ft = pickFood();
+          foods.push({ x: p.x + rand(12, p.w - 12), y: p.y, type: ft.t, pts: ft.p, got: false, pid: p });
+          if (Math.random() > 0.6 && p.w > 80) {
+            const ft2 = pickFood();
+            foods.push({ x: p.x + rand(p.w * 0.5, p.w - 12), y: p.y, type: ft2.t, pts: ft2.p, got: false, pid: p });
+          }
+        }
+
+        // Cat enemy
+        if (Math.random() < 0.2 + n * 0.05 && w > 70) {
+          cats.push({
+            x: p.x + w * 0.4,
+            y: p.y,
+            pid: p,
+            vx: rand(1.2, 1.8 + n * 0.3) * (Math.random() > 0.5 ? 1 : -1),
+            frame: 0, ft: 0,
+          });
+        }
+      }
+
+      lastY = newY;
+      count++;
+    }
+
+    // Goal platform at top
+    const gpw = 140;
+    platforms.push(mkPlat(W / 2 - gpw / 2, GOAL_Y + 30, gpw, 'concrete', false));
+
+    // BG signs scattered in world space
+    for (let wy = 150; wy < LEVEL_H - 100; wy += rand(130, 220)) {
+      bgItems.push({ x: Math.random() > 0.5 ? rand(5, 25) : W - rand(45, 65), y: wy, t: irand(0, 4) });
+    }
+
+    // Set camera + player position
+    P.x = W / 2; P.y = LEVEL_H - 30;
+    P.vx = 0; P.vy = 0;
+    P.onGround = true; P.canDbl = false; P.inv = 0; P.frame = 0;
+    camY = LEVEL_H - H;
+  }
+
+  function mkPlat(x, y, w, type, moving) {
+    return {
+      x: clamp(x, 0, Math.max(0, W - w)),
+      y, w: Math.min(w, W),
+      type, moving,
+      dir: Math.random() > 0.5 ? 1 : -1,
+      ox: clamp(x, 0, Math.max(0, W - w)),
+      range: moving ? rand(35, 90) : 0,
+    };
+  }
+
+  function distributeX(num, n) {
+    const margin = 16;
+    const avail  = W - margin * 2;
+    const minW   = Math.max(55, 85 - n * 6);
+    const maxW   = Math.max(minW + 10, 160 - n * 8);
+    const result = [];
+    const slotW  = avail / num;
+
+    for (let i = 0; i < num; i++) {
+      const w  = clamp(rand(minW, maxW), minW, slotW - 20);
+      const x  = margin + i * slotW + rand(0, slotW - w - 8);
+      result.push({ x: clamp(x, margin, W - margin - w), w });
+    }
+    return result;
+  }
+
+  function pickFood() {
+    const r = Math.random() * 100;
+    if (r < 55) return { t: 'cheese', p: 1 };
+    if (r < 85) return { t: 'hotdog', p: 2 };
+    return { t: 'bun', p: 3 };
+  }
+
+  // ── Update ───────────────────────────────────────────────────────────────
+  function update() {
+    gFrame++;
+    syncCtrl();
+
+    // Horizontal
+    P.vx = ctrl.left ? -RUN_SPD : ctrl.right ? RUN_SPD : 0;
+    if (ctrl.left)  P.facing = -1;
+    if (ctrl.right) P.facing =  1;
+    P.x = clamp(P.x + P.vx, 10 * PX, W - 10 * PX);
+
+    // Jump buffer
+    if (jumpQ > 0) {
+      if (P.onGround) {
+        P.vy = JUMP_V; P.onGround = false; P.canDbl = true; jumpQ = 0;
+        spawnSparks(P.x, P.y, '#FFFFFF', 6);
+      } else if (P.canDbl) {
+        P.vy = JUMP_V * 0.82; P.canDbl = false; jumpQ = 0;
+        spawnSparks(P.x, P.y, '#88CCFF', 10);
+      }
+      jumpQ--;
+    } else if (jumpQ > 0) jumpQ--;
+
+    // Gravity + move
+    P.vy = Math.min(P.vy + GRAVITY, MAX_FALL);
+    P.y += P.vy;
+
+    // Platform collisions
+    P.onGround = false;
+    for (const p of platforms) {
+      if (p.moving) {
+        p.x += p.dir * 1.4;
+        if (p.x > p.ox + p.range || p.x < p.ox - p.range) {
+          p.dir *= -1;
+          p.x   = clamp(p.x, p.ox - p.range, p.ox + p.range);
+        }
+      }
+      const prevY = P.y - P.vy;
+      if (P.vy >= 0 &&
+          prevY     <= p.y &&
+          P.y       >= p.y &&
+          P.x + 9 * PX > p.x &&
+          P.x - 9 * PX < p.x + p.w) {
+        P.y = p.y; P.vy = 0; P.onGround = true; P.canDbl = false;
+        if (p.moving) P.x = clamp(P.x + p.dir * 1.4, 10 * PX, W - 10 * PX);
+        break;
+      }
+    }
+
+    // Animation
+    P.ft++;
+    if (P.ft >= (P.vx !== 0 ? 7 : 11)) { P.ft = 0; P.frame = (P.frame + 1) % 4; }
+    if (P.inv > 0) P.inv--;
+
+    // Fell off bottom
+    if (P.y > LEVEL_H + 60) hit();
+
+    // Food collection
+    for (const f of foods) {
+      if (f.got) continue;
+      if (Math.abs(f.x - P.x) < 13 * PX && Math.abs(f.y - P.y) < 14 * PX) {
+        f.got = true;
+        score += f.pts;
+        if (score > hi) hi = score;
+        spawnSparks(f.x, f.y - 10, foodCol(f.type), 10);
+        floats.push({ x: f.x, y: f.y, text: '+' + f.pts, life: 50, max: 50, big: f.pts >= 3 });
+      }
+    }
+
+    // Cat patrol
+    for (const c of cats) {
+      const p = c.pid;
+      c.x += c.vx;
+      c.ft++; if (c.ft >= 6) { c.ft = 0; c.frame ^= 1; }
+      if (p.moving) c.x += p.dir * 1.4;
+      if (c.x < p.x + 5 || c.x > p.x + p.w - 5) {
+        c.vx *= -1;
+        c.x   = clamp(c.x, p.x + 5, p.x + p.w - 5);
+      }
+      if (P.inv === 0 && Math.abs(c.x - P.x) < 11 * PX && Math.abs(c.y - P.y) < 14 * PX) hit();
+    }
+
+    // Reached exit
+    if (P.y <= GOAL_Y + 55 && Math.abs(P.x - W / 2) < 100) {
+      score += 50 * lvl;
+      if (score > hi) hi = score;
+      setScreen('complete');
+      spawnSparks(P.x, P.y - 20, '#FFD700', 30);
+    }
+
+    // Camera (smooth, only scrolls with player; clamp to level bounds)
+    const targetCam = P.y - H * 0.62;
+    camY += (targetCam - camY) * 0.12;
+    camY  = clamp(camY, 0, LEVEL_H - H);
+
+    // Particles + floats
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.x += s.vx; s.y += s.vy; s.vy += 0.1; s.life--;
+      if (s.life <= 0) sparks.splice(i, 1);
+    }
+    for (let i = floats.length - 1; i >= 0; i--) {
+      floats[i].y -= 1.1; floats[i].life--;
+      if (floats[i].life <= 0) floats.splice(i, 1);
+    }
+  }
+
+  function hit() {
+    if (P.inv > 0) return;
+    lives--;
+    P.inv = 120;
+    P.vy  = -9;
+    spawnSparks(P.x, P.y, '#FF4444', 20);
+    if (lives <= 0) setScreen('gameover');
+  }
+
+  function spawnSparks(x, y, col, n) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 3.5;
+      sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2,
+        col, life: 20 + Math.random() * 15, max: 35, sz: 2 + Math.random() * 2.5 });
+    }
+  }
+
+  function foodCol(t) { return t === 'cheese' ? '#FFD700' : t === 'hotdog' ? '#CC4422' : '#FFFFFF'; }
+
+  // ── Drawing ──────────────────────────────────────────────────────────────
+  function drawBg() {
+    // Tunnel fill
+    ctx.fillStyle = '#0E0B18';
+    ctx.fillRect(0, 0, W, H);
+
+    // Subway tile grid (world-aligned so it doesn't slide on resize)
+    const TILE = 22;
+    const startTY = ((-camY % TILE) + TILE) % TILE;
+    ctx.strokeStyle = '#191425';
+    ctx.lineWidth = 1;
+    for (let ty = startTY - TILE; ty < H + TILE; ty += TILE) {
+      const worldRow = Math.round((ty + camY) / TILE);
+      const shift    = (worldRow % 2) * (TILE / 2);
+      for (let tx = (shift % TILE) - TILE; tx < W + TILE; tx += TILE) {
+        ctx.strokeRect(tx, ty, TILE, TILE);
+      }
+    }
+
+    // Left and right wall accent lines
+    ctx.fillStyle = '#1A1530';
+    ctx.fillRect(0, 0, 8, H);
+    ctx.fillRect(W - 8, 0, 8, H);
+    ctx.fillStyle = '#2A2050';
+    ctx.fillRect(0, 0, 3, H);
+    ctx.fillRect(W - 3, 0, 3, H);
+
+    // BG signs
+    for (const b of bgItems) {
+      const sy = screenY(b.y);
+      if (sy < -30 || sy > H + 30) continue;
+      drawBgSign(b.x, sy, b.t);
+    }
+
+    // Goal EXIT banner
+    const gsy = screenY(GOAL_Y);
+    if (gsy > -60 && gsy < H + 20) {
+      // Ceiling glow
+      const ga = 0.25 + 0.2 * Math.abs(Math.sin(gFrame * 0.06));
+      ctx.globalAlpha = ga;
+      ctx.fillStyle   = '#FFD700';
+      ctx.fillRect(0, R(gsy), W, 5);
+      ctx.globalAlpha = 1;
+
+      // EXIT sign
+      ctx.fillStyle = '#003B8E';
+      ctx.fillRect(W / 2 - 44, R(gsy - 28), 88, 22);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '9px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('EXIT →', W / 2, R(gsy - 13));
+    }
+  }
+
+  function drawBgSign(x, y, t) {
+    ctx.save(); ctx.translate(R(x), R(y));
+    if (t === 0) {
+      // MTA blue sign
+      ctx.fillStyle = '#003B8E';
+      ctx.fillRect(0, 0, 38, 18);
+      ctx.fillStyle = '#FFD700';
+      ctx.font = '5px "Press Start 2P", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('MTA', 4, 12);
+    } else if (t === 1) {
+      // No entry circle
+      ctx.fillStyle = '#AA1100';
+      ctx.beginPath(); ctx.arc(10, 10, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(4, 8, 12, 4);
+    } else if (t === 2) {
+      // Flickering light bar
+      const fl = 0.6 + 0.4 * Math.abs(Math.sin(gFrame * 0.04 + x));
+      ctx.fillStyle = '#443333';
+      ctx.fillRect(0, 0, 24, 5);
+      ctx.globalAlpha = fl;
+      ctx.fillStyle = '#FFEEAA';
+      ctx.fillRect(2, 5, 20, 3);
+      ctx.globalAlpha = 1;
+    } else {
+      // NYC map poster
+      ctx.fillStyle = '#222';
+      ctx.fillRect(0, 0, 28, 36);
+      ctx.fillStyle = '#CC1111';
+      ctx.fillRect(4, 4, 20, 28);
+      ctx.fillStyle = '#FFFF00';
+      ctx.fillRect(6, 10, 2, 16);
+      ctx.fillRect(10, 14, 2, 12);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '4px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('NYC', 4, 38);
+    }
+    ctx.restore();
+  }
+
+  function drawPlatform(p) {
+    const sy = screenY(p.y);
+    if (sy > H + 10 || sy < -30) return;
+
+    const bodyH = Math.min(26, H - sy);
+    if (bodyH <= 0) return;
+
+    let topC, bodyC, stripeC;
+    switch (p.type) {
+      case 'concrete': topC = '#8A8098'; bodyC = '#5A4E68'; stripeC = '#FFD700'; break;
+      case 'train':    topC = '#7799BB'; bodyC = '#224488'; stripeC = '#FFCC00'; break;
+      case 'beam':     topC = '#887744'; bodyC = '#554422'; stripeC = '#AA8833'; break;
+      default:         topC = '#667788'; bodyC = '#334455'; stripeC = '#88AACC'; // grate
+    }
+
+    // Body
+    ctx.fillStyle = bodyC;
+    ctx.fillRect(R(p.x), R(sy), R(p.w), bodyH);
+
+    // Top surface
+    ctx.fillStyle = topC;
+    ctx.fillRect(R(p.x), R(sy - 5), R(p.w), 5);
+
+    // Safety stripe
+    ctx.fillStyle = stripeC;
+    ctx.fillRect(R(p.x), R(sy - 6), R(p.w), 2);
+
+    // Grate pattern
+    if (p.type === 'grate') {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      for (let gx = R(p.x) + 4; gx < R(p.x + p.w) - 4; gx += 8) {
+        ctx.fillRect(gx, R(sy - 5), 3, 5);
+      }
+    }
+
+    // Right edge shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(R(p.x + p.w - 3), R(sy - 6), 3, bodyH + 6);
+
+    // Moving indicator (blinking arrows)
+    if (p.moving) {
+      const blink = 0.5 + 0.5 * Math.abs(Math.sin(gFrame * 0.12));
+      ctx.globalAlpha = blink;
+      ctx.fillStyle   = '#FF9900';
+      const arr = p.dir > 0 ? '▶' : '◀';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(arr, R(p.x + p.w / 2), R(sy - 8));
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawFood(f) {
+    if (f.got) return;
+    const sy  = screenY(f.y);
+    if (sy < -20 || sy > H + 20) return;
+    const bob = Math.sin(gFrame * 0.09 + f.x * 0.012) * 4;
+    const dy  = sy - 16 + bob;  // float above platform
+    if      (f.type === 'cheese') drawCheese(f.x, dy);
+    else if (f.type === 'hotdog') drawHotdog(f.x, dy);
+    else                          drawBun(f.x, dy);
+  }
+
+  function drawCheese(cx, sy) {
+    blk(cx - 4*PX, sy - 5*PX, 8, 5, '#FFD700');
+    blk(cx - 5*PX, sy - 3*PX, 10, 3, '#FFAA00');
+    blk(cx - 3*PX, sy - 4*PX, 2, 2, '#FFF0A0');
+    ctx.fillStyle = '#CC8800';
+    ctx.fillRect(R(cx - 1*PX), R(sy - 2*PX), R(2*PX), R(2*PX));
+    ctx.fillRect(R(cx + 3*PX), R(sy - 4*PX), R(2*PX), R(2*PX));
+  }
+
+  function drawHotdog(cx, sy) {
+    blk(cx - 5*PX, sy - 8*PX, 10, 4, '#E8A850');
+    blk(cx - 4*PX, sy - 9*PX, 8,  2, '#F0C070');
+    blk(cx - 5*PX, sy - 5*PX, 10, 3, '#CC4422');
+    blk(cx - 4*PX, sy - 5*PX, 8,  1, '#EE6644');
+    ctx.fillStyle = '#FFE000';
+    ctx.fillRect(R(cx - 2*PX), R(sy - 4*PX), R(PX), R(PX));
+    ctx.fillRect(R(cx + 1*PX), R(sy - 5*PX), R(PX), R(PX));
+    blk(cx - 5*PX, sy - 3*PX, 10, 3, '#E8A850');
+  }
+
+  function drawBun(cx, sy) {
+    blk(cx - 5*PX, sy - 9*PX, 10, 8, '#F8F4EE');
+    blk(cx - 4*PX, sy-11*PX,  8,  3, '#FFFFFF');
+    blk(cx - 2*PX, sy-12*PX,  4,  2, '#FFFFFF');
+    blk(cx - 1*PX, sy - 7*PX, 3,  1, '#DDDAD4');
+    // Steam
+    const sg = 0.5 + 0.5 * Math.abs(Math.sin(gFrame * 0.14));
+    ctx.globalAlpha = sg * 0.6;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(R(cx - 2*PX), R(sy - 14*PX), R(PX), R(2*PX));
+    ctx.fillRect(R(cx + 2*PX), R(sy - 15*PX), R(PX), R(2*PX));
+    ctx.globalAlpha = 1;
+  }
+
+  function drawGoal() {
+    const sy = screenY(GOAL_Y);
+    if (sy < -40 || sy > H + 10) return;
+    const p  = 0.7 + 0.3 * Math.abs(Math.sin(gFrame * 0.08));
+    ctx.globalAlpha = p;
+    ctx.fillStyle   = '#FFD700';
+    ctx.font        = '22px serif';
+    ctx.textAlign   = 'center';
+    ctx.fillText('⭐', R(W / 2), R(sy + 4));
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Draw Pepe ─────────────────────────────────────────────────────────────
+  function drawPepe() {
+    if (P.inv > 0 && Math.floor(P.inv / 5) % 2 === 1) return;
+    const sy = screenY(P.y);
+    const f  = P.frame % 2;
+    ctx.save();
+    ctx.translate(R(P.x), R(sy));
+    if (P.facing < 0) ctx.scale(-1, 1);
+
+    const B = (x, y, w, h, col) => blk(x * PX, y * PX, w, h, col);
+    const la = f;
+
+    // Tail
+    B(5, -9, 2, 5, '#D4A0A8');
+    B(6, -12, 2, 3, '#C49090');
+
+    // Body / hoodie
+    B(-5, -11, 10, 7, '#6A7A8A');
+    B(-4,  -9,  7, 2, '#7A8A9A');
+    B(-1, -10,  2, 4, '#4A555F');
+
+    // Head
+    B(-6, -23, 12, 13, '#C0AA90');
+    B(-5, -22, 10, 11, '#D8C8A8');
+
+    // Ears
+    B(-8, -26, 5, 5, '#C0AA90');
+    B( 3, -26, 5, 5, '#C0AA90');
+    B(-7, -25, 3, 3, '#FFAABB');
+    B( 4, -25, 3, 3, '#FFAABB');
+
+    // Yankees cap
+    B(-5, -24, 10, 2, '#1A1A1A');
+    B(-4, -26,  8, 2, '#1A1A1A');
+    B(-3, -28,  6, 2, '#1A1A1A');
+    B(-1, -28,  2, 1, '#FFFFFF');
+
+    // Eyes
+    B(-4, -21, 4, 5, '#1A1A28'); B(-3, -20, 2, 3, '#2244AA'); B(-2, -19, 1, 2, '#080818'); B(-4, -21, 2, 2, '#FFFFFF');
+    B( 0, -21, 4, 5, '#1A1A28'); B( 1, -20, 2, 3, '#2244AA'); B( 2, -19, 1, 2, '#080818'); B( 0, -21, 2, 2, '#FFFFFF');
+
+    // Blush
+    ctx.globalAlpha = 0.5;
+    B(-6, -17, 3, 2, '#FF9999'); B(3, -17, 3, 2, '#FF9999');
+    ctx.globalAlpha = 1;
+
+    // Nose + mouth
+    B(-1, -16, 2, 1, '#FF8888');
+    B(-2, -14, 5, 1, '#886655');
+
+    // Whiskers
+    B(-9, -17, 3, 1, '#E8D8C0'); B(-9, -15, 3, 1, '#E8D8C0');
+    B( 6, -17, 3, 1, '#E8D8C0'); B( 6, -15, 3, 1, '#E8D8C0');
+
+    // Legs + sneakers
+    if (!P.onGround) {
+      B(-4, -4, 3, 3, '#9A8A78'); B(1, -4, 3, 3, '#9A8A78');
+      B(-5, -2, 4, 2, '#E8E8E8'); B( 1, -2, 4, 2, '#E8E8E8');
+    } else {
+      B(-4, -4 + la, 3, 4, '#9A8A78'); B(1, -4 - la + 1, 3, 4, '#9A8A78');
+      B(-5, la, 4, 2, '#E8E8E8'); B(-5, la, 2, 1, '#FF4444');
+      B( 1, 1 - la, 4, 2, '#E8E8E8'); B(1, 1 - la, 2, 1, '#FF4444');
+    }
+
+    ctx.restore();
+  }
+
+  // ── Draw enemy cat ────────────────────────────────────────────────────────
+  function drawCat(c) {
+    const sy = screenY(c.y);
+    if (sy < -20 || sy > H + 10) return;
+    const la = c.frame % 2;
+    const dir = c.vx > 0 ? 1 : -1;
+    ctx.save();
+    ctx.translate(R(c.x), R(sy));
+    if (dir < 0) ctx.scale(-1, 1);
+    const B = (x, y, w, h, col) => blk(x * PX, y * PX, w, h, col);
+
+    B(6, -7, 2, 4, '#8855AA'); // tail
+    B(-6, -8, 12, 6, '#8855AA'); // body
+    B(-5, -6,  9, 2, '#AA77CC');
+    B(-5,-15, 10, 8, '#8855AA'); // head
+    B(-4,-14,  8, 6, '#D0AAEE');
+    B(-6,-18,  3, 3, '#8855AA'); // ears
+    B( 3,-18,  3, 3, '#8855AA');
+    // Eyes
+    B(-4,-15, 2, 3, '#1A1A18'); B(-3,-14, 1, 1, '#FFCC00'); B(-4,-15, 1, 1, '#FFFFFF');
+    B( 2,-15, 2, 3, '#1A1A18'); B( 3,-14, 1, 1, '#FFCC00'); B( 2,-15, 1, 1, '#FFFFFF');
+    B(-1,-11, 1, 1, '#FF8888');
+    B(-1,-10, 3, 1, '#663344');
+    // Legs
+    B(-4, -2 + la, 2, 3, '#7744AA'); B( 2, -2 - la + 1, 2, 3, '#7744AA');
+    B(-5, la, 3, 1, '#662299'); B(2, 1 - la, 3, 1, '#662299');
+
+    ctx.restore();
+  }
+
+  // ── Particles + float texts ───────────────────────────────────────────────
+  function drawSparks() {
+    for (const s of sparks) {
+      const sy = screenY(s.y);
+      ctx.globalAlpha = (s.life / s.max) ** 1.4;
+      ctx.fillStyle   = s.col;
+      const sz = R(s.sz * (s.life / s.max) + 1);
+      ctx.fillRect(R(s.x - sz / 2), R(sy - sz / 2), sz, sz);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawFloats() {
+    for (const t of floats) {
+      const sy = screenY(t.y);
+      ctx.globalAlpha = Math.min(1, t.life / (t.max * 0.4));
+      ctx.fillStyle   = t.big ? '#FFD700' : '#FFFFFF';
+      ctx.font        = (t.big ? '12px' : '9px') + ' "Press Start 2P", monospace';
+      ctx.textAlign   = 'center';
+      ctx.fillText(t.text, R(t.x), R(sy));
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ── HUD ──────────────────────────────────────────────────────────────────
+  function drawSlice(x, y, on) {
+    const s = on ? '#CC2211' : '#2A1510';
+    const c = on ? '#FFD044' : '#2A2210';
+    const k = on ? '#CC7722' : '#221508';
+    ctx.fillStyle = c; ctx.fillRect(x + 4, y, 4, 2);
+    ctx.fillStyle = s; ctx.fillRect(x + 2, y + 2, 8, 2);
+    ctx.fillStyle = c; ctx.fillRect(x, y + 4, 12, 2);
+    ctx.fillStyle = s; ctx.fillRect(x + 2, y + 5, 2, 1); ctx.fillRect(x + 7, y + 5, 2, 1);
+    ctx.fillStyle = k; ctx.fillRect(x, y + 6, 12, 3);
+  }
+
+  function drawHUD() {
+    // Score
+    ctx.font = '11px "Press Start 2P", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText(String(score).padStart(5, '0'), 12, 22);
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = 'rgba(255,215,0,0.4)';
+    ctx.fillText('HI ' + hi, 12, 33);
+
+    // Level
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#AAAACC';
+    ctx.fillText('LV ' + lvl, W / 2, 20);
+
+    // Pizza slices
+    for (let i = 0; i < 6; i++) drawSlice(W - 18 - i * 15, 8, i < lives);
+
+    // Height progress bar (right side)
+    const pct = clamp(1 - (P.y - GOAL_Y) / (LEVEL_H - GOAL_Y), 0, 1);
+    const barX = W - 12, barY = 50, barH = H - 130;
+    ctx.fillStyle = '#221830';
+    ctx.fillRect(barX, barY, 8, barH);
+    ctx.fillStyle = '#44EE99';
+    const fillH = R(barH * pct);
+    ctx.fillRect(barX, barY + barH - fillH, 8, fillH);
+    // Pepe marker on bar
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(barX - 2, barY + barH - fillH - 2, 12, 4);
+    ctx.font = '5px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#44EE99';
+    ctx.fillText(R(pct * 100) + '%', barX - 4, barY + barH - fillH + 3);
+  }
+
+  // ── Virtual buttons ───────────────────────────────────────────────────────
+  function drawBtns() {
+    const draw = (b, label, active) => {
+      ctx.globalAlpha = active ? 0.65 : 0.3;
+      ctx.fillStyle   = active ? '#6688FF' : '#223344';
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = active ? '#99AAFF' : '#445566';
+      ctx.lineWidth   = 2; ctx.stroke();
+      ctx.globalAlpha = active ? 0.95 : 0.55;
+      ctx.fillStyle   = '#FFFFFF';
+      ctx.font        = `${b.r}px monospace`;
+      ctx.textAlign   = 'center';
+      ctx.fillText(label, b.x, b.y + b.r * 0.35);
+    };
+    draw(BL, '◀', ctrl.left);
+    draw(BR, '▶', ctrl.right);
+    draw(BJ, '▲', jumpQ > 0);
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Screen overlays ───────────────────────────────────────────────────────
+  function drawTitle() {
+    ctx.fillStyle = 'rgba(8,6,16,0.92)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.font = `${clamp(17, 4.5 * W / 100, 24)}px "Press Start 2P", monospace`;
+    ctx.textAlign   = 'center';
+    ctx.fillStyle   = '#FFD700';
+    ctx.shadowColor = 'rgba(255,180,0,0.5)'; ctx.shadowBlur = 12;
+    ctx.fillText("PEPE'S FEAST", W / 2, H * 0.16);
+    ctx.shadowBlur  = 0;
+
+    ctx.font = `${clamp(7, 1.9 * W / 100, 10)}px "Press Start 2P", monospace`;
+    ctx.fillStyle = 'rgba(200,180,255,0.7)';
+    ctx.fillText('NYC SUBWAY CLIMBER', W / 2, H * 0.26);
+
+    // Instructions
+    ctx.font = `${clamp(6, 1.5 * W / 100, 8)}px "Press Start 2P", monospace`;
+    ctx.fillStyle = 'rgba(180,180,220,0.55)';
+    const lines = [
+      'Collect food on platforms',
+      'Dodge the cats',
+      'Reach EXIT at the top!',
+      '◀ ▶ to run   ▲ to jump',
+      '6 pizza slices = 6 lives',
+    ];
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, H * 0.45 + i * (H * 0.07)));
+
+    const p = 0.55 + 0.45 * Math.abs(Math.sin(gFrame * 0.055));
+    ctx.font = `${clamp(9, 2.3 * W / 100, 13)}px "Press Start 2P", monospace`;
+    ctx.fillStyle = `rgba(255,215,0,${p})`;
+    ctx.fillText('▶  TAP TO PLAY', W / 2, H * 0.84);
+  }
+
+  function drawComplete() {
+    ctx.fillStyle = 'rgba(0,14,4,0.88)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.font = `${clamp(14, 3.5 * W / 100, 20)}px "Press Start 2P", monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#44FF88';
+    ctx.fillText('LEVEL CLEAR!', W / 2, H * 0.3);
+    ctx.font = `${clamp(9, 2.3 * W / 100, 12)}px "Press Start 2P", monospace`;
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText('SCORE  ' + score, W / 2, H * 0.44);
+    const p = 0.55 + 0.45 * Math.abs(Math.sin(gFrame * 0.07));
+    ctx.fillStyle = `rgba(255,255,255,${p})`;
+    ctx.font = `${clamp(7, 1.8 * W / 100, 9)}px "Press Start 2P", monospace`;
+    ctx.fillText('Tap to continue', W / 2, H * 0.65);
+  }
+
+  function drawOver() {
+    ctx.fillStyle = 'rgba(14,0,0,0.9)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.font = `${clamp(15, 4 * W / 100, 22)}px "Press Start 2P", monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FF4444';
+    ctx.fillText('GAME OVER', W / 2, H * 0.3);
+    ctx.font = `${clamp(9, 2.3 * W / 100, 12)}px "Press Start 2P", monospace`;
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText('SCORE  ' + score, W / 2, H * 0.44);
+    ctx.fillStyle = 'rgba(255,215,0,0.45)';
+    ctx.fillText('BEST   ' + hi, W / 2, H * 0.53);
+    const p = 0.55 + 0.45 * Math.abs(Math.sin(gFrame * 0.06));
+    ctx.font = `${clamp(7, 1.8 * W / 100, 9)}px "Press Start 2P", monospace`;
+    ctx.fillStyle = `rgba(255,255,255,${p})`;
+    ctx.fillText('Tap to play again', W / 2, H * 0.72);
+  }
+
+  // ── Game flow ─────────────────────────────────────────────────────────────
+  function startGame() {
+    lvl = 1; score = 0; lives = 6;
+    genLevel(1);
+    setScreen('playing');
+  }
+
+  function nextLevel() {
+    lvl++;
+    genLevel(lvl);
+    setScreen('playing');
+  }
+
+  // ── Main loop ─────────────────────────────────────────────────────────────
+  function loop() {
+    gFrame++;
+    ctx.clearRect(0, 0, W, H);
+
+    if (screen === 'title') {
+      // Scrolling bg on title
+      ctx.fillStyle = '#0E0B18';
+      ctx.fillRect(0, 0, W, H);
+      const shift = gFrame * 0.4;
+      ctx.strokeStyle = '#191425'; ctx.lineWidth = 1;
+      for (let ty = ((-shift) % 22 + 22) % 22; ty < H + 22; ty += 22) {
+        for (let tx = 0; tx < W + 22; tx += 22) ctx.strokeRect(tx, ty, 22, 22);
+      }
+      drawTitle();
+      drawBtns();
+
+    } else if (screen === 'playing') {
+      update();
+      drawBg();
+      for (const p of platforms) drawPlatform(p);
+      for (const f of foods)     drawFood(f);
+      for (const c of cats)      drawCat(c);
+      drawGoal();
+      drawPepe();
+      drawSparks();
+      drawFloats();
+      drawHUD();
+      drawBtns();
+
+    } else if (screen === 'complete') {
+      // Show the level still behind overlay
+      drawBg();
+      for (const p of platforms) drawPlatform(p);
+      for (const f of foods)     drawFood(f);
+      drawGoal();
+      drawPepe();
+      drawSparks();
+      drawComplete();
+
+    } else if (screen === 'gameover') {
+      drawBg();
+      drawOver();
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  // ── Resize ────────────────────────────────────────────────────────────────
+  function resize() {
+    const vp = window.visualViewport;
+    W = canvas.width  = R(vp ? vp.width  : window.innerWidth);
+    H = canvas.height = R(vp ? vp.height : window.innerHeight);
+    setBtns();
+  }
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 250));
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+  document.addEventListener('gesturestart',  e => e.preventDefault(), { passive: false });
+  document.addEventListener('gesturechange', e => e.preventDefault(), { passive: false });
+
+  requestAnimationFrame(() => { resize(); requestAnimationFrame(loop); });
+
+})();
+</script>
+</body>
+</html>
