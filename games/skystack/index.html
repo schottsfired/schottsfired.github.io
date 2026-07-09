@@ -134,8 +134,10 @@
       display: none;
     }
 
+    .overlay.show .btn { pointer-events: auto; }
+
     .btn {
-      pointer-events: auto;
+      pointer-events: none;
       margin-top: 10px;
       padding: 15px 44px;
       font-family: inherit;
@@ -265,11 +267,14 @@
   const comboEl = document.getElementById('combo');
 
   function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 2.5);
-    W = window.innerWidth;
-    H = window.innerHeight;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const vp = window.visualViewport;
+    W = Math.round(vp ? vp.width : window.innerWidth);
+    H = Math.round(vp ? vp.height : window.innerHeight);
     canvas.width = W * DPR;
     canvas.height = H * DPR;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     SCALE = Math.min(W / 480, H / 720) * 0.95;
     if (stars.length === 0) {
@@ -571,6 +576,7 @@
   document.getElementById('retry-btn').addEventListener('click', start);
 
   window.addEventListener('resize', resize);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 
   resize();
   reset();

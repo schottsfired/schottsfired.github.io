@@ -109,8 +109,10 @@
     }
     .legend b { color: #fff; }
 
+    .overlay.show .btn { pointer-events: auto; }
+
     .btn {
-      pointer-events: auto;
+      pointer-events: none;
       margin-top: 8px;
       padding: 15px 44px;
       font-family: inherit;
@@ -248,11 +250,14 @@
   }
 
   function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 2.5);
-    W = window.innerWidth;
-    H = window.innerHeight;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const vp = window.visualViewport;
+    W = Math.round(vp ? vp.width : window.innerWidth);
+    H = Math.round(vp ? vp.height : window.innerHeight);
     canvas.width = W * DPR;
     canvas.height = H * DPR;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   }
 
@@ -733,7 +738,7 @@
   document.getElementById('play-btn').addEventListener('click', () => { ensureAudio(); newGame(); });
   document.getElementById('retry-btn').addEventListener('click', () => { ensureAudio(); newGame(); });
 
-  window.addEventListener('resize', () => {
+  function onResize() {
     const wasW = W;
     resize();
     if (paddle) {
@@ -741,7 +746,9 @@
       paddle.y = H - Math.max(H * 0.07, 52);
       if (state === 'play' && Math.abs(W - wasW) > 60) buildLevel();
     }
-  });
+  }
+  window.addEventListener('resize', onResize);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
 
   resize();
   requestAnimationFrame(loop);
