@@ -809,6 +809,10 @@
     ctx.fillStyle = 'rgba(200,180,255,0.7)';
     ctx.fillText('NYC SUBWAY CLIMBER', W / 2, H * 0.26);
 
+    ctx.font = `${clamp(6, 1.6 * W / 100, 9)}px "Press Start 2P", monospace`;
+    ctx.fillStyle = 'rgba(255,215,0,0.6)';
+    ctx.fillText('A GAME BY CYNTHIA S', W / 2, H * 0.32);
+
     // Instructions
     ctx.font = `${clamp(6, 1.5 * W / 100, 8)}px "Press Start 2P", monospace`;
     ctx.fillStyle = 'rgba(180,180,220,0.55)';
