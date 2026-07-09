@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#0a0714">
   <title>Boardwalk Royale</title>
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="David Schott">
-  <meta property="og:title" content="Boardwalk Royale · David Schott">
+  <meta property="og:site_name" content="Uncle Buck's Arcade">
+  <meta property="og:title" content="Boardwalk Royale · Uncle Buck's Arcade">
   <meta property="og:description" content="Casino-boardwalk pinball with craps dice and a Ferris wheel — built for Cynthia.">
   <meta property="og:url" content="https://schottsfired.github.io/games/boardwalk-pinball/">
   <meta property="og:image" content="https://schottsfired.github.io/og.png">
@@ -285,13 +285,19 @@
     }
   })();
 
-  addSeg(3, 47, 3, 122);            // left wall
-  addSeg(3, 122, 20, 150);          // left lower angle
-  addSeg(20, 150, 29.5, 154.5);     // feed to left flipper
-  addSeg(88, 52, 88, 122);          // lane divider (upper)
-  addSeg(88, 122, 71, 150);         // right lower angle
-  addSeg(71, 150, 61.5, 154.5);     // feed to right flipper
-  addSeg(88, 122, 88, 162);         // lane divider (lower)
+  // Bottom third mirrors real pinball anatomy: the side walls funnel in,
+  // an outlane (drain channel) runs outside a guide rail, an inlane inside
+  // it feeds the flipper, and slingshots guard the middle.
+  addSeg(3, 47, 3, 116);            // left wall
+  addSeg(3, 116, 9, 148);           // left funnel (outlane outer side)
+  addSeg(13.5, 121, 18, 149);       // left outlane/inlane divider rail
+  addSeg(18, 149, 29.5, 154.5);     // rail curves in to the flipper base
+  addSeg(20.5, 125, 24, 146);       // left inlane guide (floating rail)
+  addSeg(88, 52, 88, 162);          // lane divider wall
+  addSeg(88, 116, 82, 148);         // right funnel (outlane outer side)
+  addSeg(77.5, 121, 73, 149);       // right outlane/inlane divider rail
+  addSeg(73, 149, 61.5, 154.5);     // rail curves in to the flipper base
+  addSeg(70.5, 125, 67, 146);       // right inlane guide (floating rail)
   addSeg(97, 47, 97, 162);          // lane outer wall
   addSeg(88, 162, 97, 162, { rest: 0.15 }); // lane floor
   // One-way gate: lets the launched ball out of the lane (moving up),
@@ -300,9 +306,18 @@
 
   // Slingshots (kicker face + two passive faces), casino-red triangles
   const slings = [
-    { verts: [[16, 129], [24, 148], [14, 144]], flash: 0, cool: 0 },
-    { verts: [[75, 129], [67, 148], [77, 144]], flash: 0, cool: 0 }
+    { verts: [[27, 129], [34, 147], [25, 143.5]], flash: 0, cool: 0 },
+    { verts: [[64, 129], [57, 147], [66, 143.5]], flash: 0, cool: 0 }
   ];
+
+  // Outlane kickbacks — like a real table, a pusher can fire the ball back
+  // out of the drain channel. Generous: always saves a low-scoring ball.
+  const kickbacks = {
+    L: { x: 13.5, y: 152.5, flash: 0, cool: 0 },
+    R: { x: 77.5, y: 152.5, flash: 0, cool: 0 }
+  };
+  let kicksThisBall = 0;
+  let scoreThisBall = 0;
 
   // Pop bumpers — beach balls
   const bumpers = [
@@ -361,7 +376,27 @@
 
   function addScore(n) {
     score += n;
+    scoreThisBall += n;
     updateHud();
+  }
+
+  function tryKickback(side, now) {
+    const kb = kickbacks[side];
+    if (now < kb.cool) return;
+    kb.cool = now + 1200;
+    // Real-table generosity: first outlane visit always kicks back,
+    // and a struggling ball (low score) earns a second save.
+    const canKick = kicksThisBall < 1 || (scoreThisBall < 800 && kicksThisBall < 2);
+    if (!canKick) return;
+    kicksThisBall++;
+    kb.flash = 1;
+    ball.x = kb.x;
+    ball.y = kb.y - 2;
+    ball.vy = -108;
+    ball.vx = side === 'L' ? 3 : -3;
+    addScore(75);
+    floater(45.5, 118, 'KICKBACK!', '#4ade80');
+    tone(160, 0.18, 'square', 0.12, 420);
   }
 
   function floater(x, y, text, color) {
@@ -590,6 +625,12 @@
       reflectFlipper(flipR);
     }
 
+    // outlane kickbacks
+    if (ball.vy > 0 && ball.y > 148.5 && ball.y < 158 && ball.x < 88) {
+      if (ball.x > 8 && ball.x < 19) tryKickback('L', now);
+      else if (ball.x > 72 && ball.x < 83) tryKickback('R', now);
+    }
+
     // weak launch fell back onto the spring: re-cock the plunger
     if (ball.x > 88 && ball.y > 150 && Math.hypot(ball.vx, ball.vy) < 6 &&
         now - launchTime > 900) {
@@ -597,22 +638,46 @@
       return;
     }
 
+    // anti-stuck: a ball wedged in a pocket gets a gentle nudge
+    // (never while it's legitimately cradled in the flipper zone)
+    const inFlipperZone = ball.y > 144 && ball.x > 22 && ball.x < 69;
+    if (Math.hypot(ball.vx, ball.vy) < 1.6 && !inFlipperZone) {
+      stuckT += STEP;
+      if (stuckT > 2.5) {
+        stuckT = 0;
+        ball.vx += (Math.random() - 0.5) * 9;
+        ball.vy -= 7;
+      }
+    } else {
+      stuckT = 0;
+    }
+
     // drain
     if (ball.y > TH + 6) ballLost(now);
   }
 
   // ═══════════════ Game flow ═══════════════
+  let stuckT = 0;
+
   function resetBallToLane() {
     ball.x = 92.5; ball.y = 158; ball.vx = 0; ball.vy = 0;
     ballState = 'ready';
     charge = 0;
     trail.length = 0;
+    kicksThisBall = 0;
+    scoreThisBall = 0;
+    stuckT = 0;
   }
 
   function launch() {
     ballState = 'live';
-    ball.vy = -(92 + 68 * charge);
-    ball.vx = 0;
+    if (location.hash === '#test-outlane') {
+      // hidden test hook: drop the ball straight into the left outlane
+      ball.x = 9; ball.y = 100; ball.vx = 0; ball.vy = 10;
+    } else {
+      ball.vy = -(92 + 68 * charge);
+      ball.vx = 0;
+    }
     launchTime = performance.now();
     tone(200, 0.25, 'triangle', 0.1, 620);
   }
@@ -683,13 +748,15 @@
     }
     c.lineTo(PX(97 - i, 162), PY(162));
     c.lineTo(PX(88, 162), PY(162));
-    c.lineTo(PX(88, 122), PY(122));
-    c.lineTo(PX(71, 150), PY(150));
-    c.lineTo(PX(61.5, 154.5), PY(154.5));
+    c.lineTo(PX(88, 116), PY(116));
+    c.lineTo(PX(82, 148), PY(148));
+    c.lineTo(PX(73, 153), PY(153));
+    c.lineTo(PX(61.5, 157), PY(157));
     // drain gap
-    c.lineTo(PX(29.5, 154.5), PY(154.5));
-    c.lineTo(PX(20, 150), PY(150));
-    c.lineTo(PX(3 + i, 122), PY(122));
+    c.lineTo(PX(29.5, 157), PY(157));
+    c.lineTo(PX(18, 153), PY(153));
+    c.lineTo(PX(9, 148), PY(148));
+    c.lineTo(PX(3 + i, 116), PY(116));
   }
 
   function buildStatic() {
@@ -772,9 +839,13 @@
     c.strokeStyle = 'rgba(255, 235, 200, 0.25)';
     c.lineWidth = Math.max(1.5, S * 0.9);
     const wallPairs = [
-      [3, 47, 3, 122], [3, 122, 20, 150], [20, 150, 29.5, 154.5],
-      [88, 52, 88, 122], [88, 122, 71, 150], [71, 150, 61.5, 154.5],
-      [88, 122, 88, 162], [97, 47, 97, 162], [88, 162, 97, 162]
+      [3, 47, 3, 116], [3, 116, 9, 148],
+      [13.5, 121, 18, 149], [18, 149, 29.5, 154.5],
+      [20.5, 125, 24, 146],
+      [88, 52, 88, 162], [88, 116, 82, 148],
+      [77.5, 121, 73, 149], [73, 149, 61.5, 154.5],
+      [70.5, 125, 67, 146],
+      [97, 47, 97, 162], [88, 162, 97, 162]
     ];
     for (const [x1, y1, x2, y2] of wallPairs) {
       c.beginPath();
@@ -1080,6 +1151,29 @@
     }
   }
 
+  function drawKickbacks() {
+    for (const side of ['L', 'R']) {
+      const kb = kickbacks[side];
+      const armed = kicksThisBall < 1 || (scoreThisBall < 800 && kicksThisBall < 2);
+      const p = PS(kb.y), x = PX(kb.x, kb.y), y = PY(kb.y);
+      const w = 4.6 * p, h = (2.2 + kb.flash * 5) * p;
+      ctx.fillStyle = kb.flash > 0 ? '#fef08a'
+        : armed ? '#fbbf24' : 'rgba(148, 163, 184, 0.4)';
+      ctx.beginPath();
+      ctx.moveTo(x - w / 2, y);
+      ctx.lineTo(x, y - h);
+      ctx.lineTo(x + w / 2, y);
+      ctx.closePath();
+      ctx.fill();
+      if (armed && state === 'play') {
+        ctx.strokeStyle = `rgba(251, 191, 36, ${0.3 + kb.flash * 0.7})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      kb.flash = Math.max(0, kb.flash - 0.05);
+    }
+  }
+
   function drawFloaters() {
     ctx.textAlign = 'center';
     for (let i = floaters.length - 1; i >= 0; i--) {
@@ -1139,6 +1233,7 @@
     drawBumpers();
     drawDice(t);
     drawTargets();
+    drawKickbacks();
     drawFlipper(flipL);
     drawFlipper(flipR);
     drawPlunger(t);
