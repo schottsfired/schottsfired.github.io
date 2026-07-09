@@ -171,7 +171,7 @@
     <h1>Boardwalk<br>Royale</h1>
     <div class="byline">Built for Cynthia <span class="heart">♥</span></div>
     <p id="controls-hint"></p>
-    <p style="font-size:12px">Every ball antes <b>10 chips</b>. Hit the dice to roll:<br><b>7 or 11</b> wins the come-out, then a point is set —<br>and rolling a <b>7</b> means seven out. 🎲</p>
+    <p style="font-size:12px">Launching antes <b>10 chips</b> and rolls a free come-out:<br><b>7/11</b> wins, <b>2·3·12</b> loses the bet (earn points to re-bet).<br>Otherwise a point is set — make it for a payout, <b>7</b> is out. 🎲</p>
     <button class="btn" id="play-btn">Play</button>
   </div>
 
@@ -266,10 +266,15 @@
   const MAXV = 150;
   const STEP = 1 / 240;
 
-  // Craps state: ante every ball, 7/11 wins the come-out, then a point
-  // is set and rolling a 7 loses — just like the real table
+  // Craps state machine. Launching a ball antes and fires a FREE come-out
+  // roll. 7/11 wins, 2/3/12 loses the bet (suspended until the player
+  // earns a free re-bet with points), anything else sets the point.
+  // modes: idle (no bet; dice-pad hit antes + rolls) | live-comeout
+  // (bet placed, come-out pending/rolling) | point | suspended
   const ANTE = 10;
-  const craps = { comeout: true, point: null, antePaid: false };
+  const REBET_SCORE = 1200;
+  const craps = { mode: 'idle', point: null, suspendBase: 0 };
+  let autoRollAt = 0;
 
   // Rollover dots in the left orbit lane — collect the trail for a bonus
   const laneDots = [{ y: 60, lit: true }, { y: 72, lit: true }, { y: 84, lit: true }, { y: 96, lit: true }];
@@ -299,21 +304,27 @@
   // it feeds the flipper, and slingshots guard the middle.
   addSeg(3, 47, 3, 116);            // left wall
   addSeg(3, 116, 9, 148);           // left funnel (outlane outer side)
-  addSeg(13.5, 121, 18, 149);       // left outlane/inlane divider rail
-  addSeg(18, 149, 27.6, 152.3);     // rail meets the flipper cap tangentially (flush)
+  addSeg(12.5, 119, 17, 149);       // left outlane/inlane divider (narrow entrance)
+  addSeg(17, 149, 27.6, 152.3);     // rail meets the flipper cap tangentially (flush)
   addSeg(88, 52, 88, 162);          // lane divider wall
   addSeg(88, 116, 82, 148);         // right funnel (outlane outer side)
-  addSeg(77.5, 121, 73, 149);       // right outlane/inlane divider rail
-  addSeg(73, 149, 63.4, 152.3);     // rail meets the flipper cap tangentially (flush)
+  addSeg(78.5, 119, 74, 149);       // right outlane/inlane divider (narrow entrance)
+  addSeg(74, 149, 63.4, 152.3);     // rail meets the flipper cap tangentially (flush)
   addSeg(97, 47, 97, 162);          // lane outer wall
   addSeg(88, 162, 97, 162, { rest: 0.15 }); // lane floor
   // Left orbit lane: catches balls coming off the arc and returns them
-  // cleanly down the left side, exiting inboard of the outlane
+  // down the left side, ejecting well inboard — away from the outlane
   addSeg(16, 48.5, 14, 52);         // angled tip so the rail never catches a ball point-on
   addSeg(14, 52, 14, 100);
-  addSeg(14, 100, 22, 114);
+  addSeg(14, 100, 24, 112);
   // Right deflector rail: steers balls off the right wall into the inlane
   addSeg(82, 96, 74, 114);
+
+  // Rubber posts guarding the outlane entrances (real-table protection)
+  const posts = [
+    { x: 11, y: 114, r: 1.6 },
+    { x: 80, y: 114, r: 1.6 }
+  ];
   // One-way gate: lets the launched ball out of the lane (moving up),
   // deflects it into the playfield when it comes back down or drifts right
   addSeg(88, 52, 95, 43, { rest: 0.3, cond: b => b.vx > 0.5 || b.vy > 0 });
@@ -329,38 +340,41 @@
   // Outlane kickbacks — like a real table, a pusher can fire the ball back
   // out of the drain channel. Generous: always saves a low-scoring ball.
   const kickbacks = {
-    L: { x: 13.5, y: 152.5, flash: 0, cool: 0 },
-    R: { x: 77.5, y: 152.5, flash: 0, cool: 0 }
+    L: { x: 13, y: 152.5, flash: 0, cool: 0 },
+    R: { x: 78, y: 152.5, flash: 0, cool: 0 }
   };
   let kicksThisBall = 0;
   let scoreThisBall = 0;
 
-  // Pop bumpers — beach balls
+  // Pop bumpers — beach balls, clustered right to guard the card bank
+  // (the middle channel up to the dice stays open)
   const bumpers = [
-    { x: 50, y: 50, r: 4.8, flash: 0 },
-    { x: 62, y: 56, r: 4.8, flash: 0 },
-    { x: 46, y: 68, r: 4.4, flash: 0 }
+    { x: 64, y: 44, r: 4.6, flash: 0 },
+    { x: 58, y: 58, r: 4.6, flash: 0 },
+    { x: 71, y: 55, r: 4.2, flash: 0 }
   ];
 
   // Craps pad (upper middle)
   const dice = {
-    x: 45.5, y: 33, r: 6.6,
+    x: 50, y: 42, r: 7,
     a: 5, b: 3, rolling: false, rollStart: 0, rollEnd: 0, cool: 0, flash: 0,
     lastTick: 0, resultUntil: 0
   };
 
   // Ferris wheel (left mid) — rotating gondolas are moving colliders
+  // Up on the arc's left shoulder like a skyline ride — out of the
+  // mid-field so the left half of the table plays open
   const wheel = {
-    x: 31, y: 62, orbit: 8.5, hubR: 3.0, gonR: 2.4,
+    x: 26, y: 44, orbit: 8.5, hubR: 3.0, gonR: 2.4,
     ang: 0, omega: 0.6, boost: 0, flash: 0
   };
   const GONDOLA_COLORS = ['#f87171', '#fbbf24', '#4ade80', '#22d3ee', '#a78bfa', '#f472b6'];
 
   // Card drop targets (right side bank): ♠ ♥ ♦
   const targets = [
-    { x1: 73, y1: 62, x2: 78, y2: 64.5, up: true, sym: '♠', col: '#e2e8f0' },
-    { x1: 76, y1: 70, x2: 81, y2: 72.5, up: true, sym: '♥', col: '#f87171' },
-    { x1: 79, y1: 78, x2: 84, y2: 80.5, up: true, sym: '♦', col: '#f87171' }
+    { x1: 74, y1: 68, x2: 79, y2: 70.5, up: true, sym: '♠', col: '#e2e8f0' },
+    { x1: 77, y1: 76, x2: 82, y2: 78.5, up: true, sym: '♥', col: '#f87171' },
+    { x1: 80, y1: 84, x2: 85, y2: 86.5, up: true, sym: '♦', col: '#f87171' }
   ];
   let targetResetAt = 0;
 
@@ -396,6 +410,13 @@
   function addScore(n) {
     score += n;
     scoreThisBall += n;
+    // earning back a free re-bet after crapping out
+    if (craps.mode === 'suspended' && scoreThisBall - craps.suspendBase >= REBET_SCORE) {
+      placeBet(true);
+      floater(45.5, 90, 'FREE RE-BET!', '#4ade80', 1.4);
+      arp([523, 659, 784], 70, 0.18, 0.11);
+      autoRollAt = performance.now() + 800;
+    }
     updateHud();
   }
 
@@ -535,8 +556,21 @@
     dice.rollEnd = now + 1100;
     dice.cool = now + 2100;
     dice.flash = 1;
-    addScore(300);
     tone(300, 0.1, 'square', 0.08, 500);
+  }
+
+  function dicePadHit(now) {
+    if (now < dice.cool || dice.rolling) return;
+    dice.cool = now + 800;
+    addScore(300);
+    if (craps.mode === 'suspended') {
+      const left = Math.max(0, REBET_SCORE - (scoreThisBall - craps.suspendBase));
+      floater(dice.x, dice.y + 11, `NO BET — ${left} TO RE-BET`, '#f87171');
+      tone(220, 0.1, 'square', 0.06);
+      return;
+    }
+    if (craps.mode === 'idle') placeBet(false);
+    rollDice(now);
   }
 
   function finishRoll(now) {
@@ -546,37 +580,40 @@
     dice.b = 1 + (Math.random() * 6 | 0);
     const total = dice.a + dice.b;
     tone(120, 0.14, 'square', 0.11); // dice settle thump
-    if (craps.comeout) {
+    if (craps.mode === 'live-comeout') {
       if (total === 7 || total === 11) {
         addChips(40);
-        floater(dice.x, dice.y + 10, `NATURAL ${total}!  +40 🪙`, '#fbbf24', 1.3);
+        floater(dice.x, dice.y + 11, `NATURAL ${total}!  +40 🪙`, '#fbbf24', 1.3);
         arp([523, 659, 784, 1047], 80, 0.22, 0.12);
+        craps.mode = 'idle';
       } else if (total === 2 || total === 3 || total === 12) {
-        floater(dice.x, dice.y + 10, `CRAPS ${total} — ante lost`, '#f87171');
+        craps.mode = 'suspended';
+        craps.suspendBase = scoreThisBall;
+        floater(dice.x, dice.y + 11, `CRAPS ${total} — bet lost`, '#f87171', 1.2);
         tone(240, 0.35, 'sawtooth', 0.1, 110);
       } else {
-        craps.comeout = false;
+        craps.mode = 'point';
         craps.point = total;
-        floater(dice.x, dice.y + 10, `POINT IS ${total}`, '#22d3ee', 1.2);
+        floater(dice.x, dice.y + 11, `POINT IS ${total}`, '#22d3ee', 1.2);
         tone(520, 0.15, 'sine', 0.1); tone(660, 0.18, 'sine', 0.09);
       }
-    } else {
+    } else if (craps.mode === 'point') {
       if (total === 7) {
         addChips(-20);
-        floater(dice.x, dice.y + 10, 'SEVEN OUT  −20 🪙', '#f87171', 1.2);
+        floater(dice.x, dice.y + 11, 'SEVEN OUT  −20 🪙', '#f87171', 1.2);
         tone(280, 0.5, 'sawtooth', 0.11, 90);
-        craps.comeout = true;
+        craps.mode = 'idle';
         craps.point = null;
       } else if (total === craps.point) {
         addChips(50);
-        floater(dice.x, dice.y + 10, `POINT MADE!  +50 🪙`, '#4ade80', 1.8);
+        floater(dice.x, dice.y + 11, `POINT MADE!  +50 🪙`, '#4ade80', 1.8);
         confettiBurst(dice.x, dice.y, 44);
         arp([523, 659, 784, 1047, 1319], 75, 0.24, 0.13);
-        craps.comeout = true;
+        craps.mode = 'idle';
         craps.point = null;
       } else {
         addChips(total);
-        floater(dice.x, dice.y + 10, `${total}  +${total} 🪙`, '#fbbf24');
+        floater(dice.x, dice.y + 11, `${total}  +${total} 🪙`, '#fbbf24');
         tone(660, 0.12, 'sine', 0.09);
       }
     }
@@ -597,6 +634,12 @@
     const wOmega = wheel.omega + wheel.boost;
     wheel.ang += wOmega * STEP;
     wheel.boost = Math.max(0, wheel.boost - 1.6 * STEP);
+
+    // free come-out roll fires on its own shortly after launch
+    if (autoRollAt && now > autoRollAt) {
+      autoRollAt = 0;
+      if (!dice.rolling) rollDice(now);
+    }
 
     if (ballState !== 'live') return;
 
@@ -636,9 +679,8 @@
           addScore(100);
           tone(900 + d.y * 3, 0.07, 'sine', 0.08);
           if (laneDots.every(l => !l.lit)) {
-            addScore(500);
-            addChips(10);
-            floater(24, 78, 'LANE SWEEP! +500 & +10 🪙', '#5eead4');
+            addScore(750);
+            floater(26, 82, 'LANE SWEEP! +750', '#5eead4', 1.2);
             arp([659, 784, 988, 1319], 70, 0.2, 0.11);
             laneResetAt = now + 10000;
           }
@@ -681,8 +723,11 @@
 
       // craps pad
       if (reflectCircle(dice.x, dice.y, dice.r, 0.65, 12)) {
-        if (now > dice.cool && !dice.rolling) rollDice(now);
+        dicePadHit(now);
       }
+
+      // rubber posts
+      for (const po of posts) reflectCircle(po.x, po.y, po.r, 0.8, 4);
 
       // ferris wheel: hub + moving gondolas
       if (reflectCircle(wheel.x, wheel.y, wheel.hubR, 0.6, 9)) {
@@ -718,8 +763,7 @@
       }
       if (hitAny && targets.every(t => !t.up)) {
         addScore(2000);
-        addChips(25);
-        floater(78, 72, 'FULL HOUSE! +25 🪙', '#fbbf24');
+        floater(78, 76, 'FULL HOUSE! +2000', '#fbbf24', 1.2);
         arp([523, 659, 784, 880, 1047], 70, 0.2, 0.12);
         // long grace period — the cleared bank leaves the path to the
         // dice open for a while before the targets pop back up
@@ -801,16 +845,23 @@
       ball.vy = -(95 + 68 * charge) * (0.97 + Math.random() * 0.06);
       ball.vx = 0;
     }
-    if (!craps.antePaid) {
-      craps.antePaid = true;
+    if (craps.mode === 'idle') {
+      placeBet(false);
+      autoRollAt = performance.now() + 1000; // free come-out while the ball flies
+    }
+    launchTime = performance.now();
+    tone(200, 0.25, 'triangle', 0.1, 620);
+  }
+
+  function placeBet(free) {
+    if (!free) {
       const bet = Math.min(ANTE, chips);
       if (bet > 0) {
         addChips(-bet);
         floater(45.5, 122, 'ANTE −' + bet + ' 🪙', '#fbbf24');
       }
     }
-    launchTime = performance.now();
-    tone(200, 0.25, 'triangle', 0.1, 620);
+    craps.mode = 'live-comeout';
   }
 
   function ballLost(now) {
@@ -822,9 +873,10 @@
       return;
     }
     tone(300, 0.5, 'sawtooth', 0.1, 70);
-    craps.comeout = true;
+    craps.mode = 'idle';
     craps.point = null;
-    craps.antePaid = false;
+    autoRollAt = 0;
+    dice.rolling = false;
     if (ballNum >= 3) {
       gameOver();
     } else {
@@ -853,7 +905,8 @@
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     ensureAudio();
     score = 0; ballNum = 1; ballSaved = false; chips = 100;
-    craps.comeout = true; craps.point = null; craps.antePaid = false;
+    craps.mode = 'idle'; craps.point = null;
+    autoRollAt = 0; dice.rolling = false; dice.resultUntil = 0;
     for (const tg of targets) tg.up = true;
     for (const d of laneDots) d.lit = true;
     laneResetAt = 0;
@@ -986,11 +1039,6 @@
     }
     archText('BOARDWALK ROYALE', 88.5, S * 44, Math.max(15, S * 5.4));
 
-    c.textAlign = 'center';
-    c.font = `500 ${Math.max(7, S * 2.2)}px Inter, sans-serif`;
-    c.fillStyle = 'rgba(244, 114, 182, 0.3)';
-    c.fillText('★ FOR CYNTHIA ★', PX(45.5, 111), PY(111));
-
     // flush scoreboard bezel — the digits are drawn live each frame
     const bz = { x1: PX(34, 100), x2: PX(57, 100), y1: PY(94), y2: PY(106.5) };
     c.fillStyle = 'rgba(6, 10, 14, 0.88)';
@@ -1016,8 +1064,8 @@
       c.stroke();
       c.lineCap = 'butt';
     }
-    laneGlow(8.5, 54, 8.5, 106, 7);      // left orbit lane
-    laneGlow(8.5, 106, 20, 121, 6);      // orbit exit sweep
+    laneGlow(8.5, 54, 8.5, 104, 7);      // left orbit lane
+    laneGlow(8.5, 104, 22, 111, 6);      // orbit exit sweep
     laneGlow(16, 124, 21, 148, 5);       // left inlane
     laneGlow(75, 124, 70, 148, 5);       // right inlane
     laneGlow(92.5, 55, 92.5, 150, 6.5);  // plunger lane
@@ -1051,11 +1099,11 @@
     c.lineWidth = Math.max(1.5, S * 0.9);
     const wallPairs = [
       [3, 47, 3, 116], [3, 116, 9, 148],
-      [13.5, 121, 18, 149], [18, 149, 27.6, 152.3],
+      [12.5, 119, 17, 149], [17, 149, 27.6, 152.3],
       [88, 52, 88, 162], [88, 116, 82, 148],
-      [77.5, 121, 73, 149], [73, 149, 63.4, 152.3],
+      [78.5, 119, 74, 149], [74, 149, 63.4, 152.3],
       [97, 47, 97, 162], [88, 162, 97, 162],
-      [16, 48.5, 14, 52], [14, 52, 14, 100], [14, 100, 22, 114],
+      [16, 48.5, 14, 52], [14, 52, 14, 100], [14, 100, 24, 112],
       [82, 96, 74, 114]
     ];
     for (const [x1, y1, x2, y2] of wallPairs) {
@@ -1064,6 +1112,21 @@
       c.lineTo(PX(x2, y2), PY(y2));
       c.stroke();
     }
+    // rubber posts above the outlanes
+    for (const po of posts) {
+      c.fillStyle = '#e2e8f0';
+      c.strokeStyle = 'rgba(0,0,0,0.4)';
+      c.lineWidth = 1;
+      c.beginPath();
+      c.arc(PX(po.x, po.y), PY(po.y), po.r * PS(po.y), 0, 7);
+      c.fill();
+      c.stroke();
+      c.fillStyle = '#f87171';
+      c.beginPath();
+      c.arc(PX(po.x, po.y), PY(po.y), po.r * PS(po.y) * 0.5, 0, 7);
+      c.fill();
+    }
+
     // arc wall glow line
     c.beginPath();
     for (let k = 0; k <= 24; k++) {
@@ -1223,8 +1286,8 @@
         hop = Math.abs(Math.sin(ph * Math.PI * 3)) * e * 2.4;
         scale = 1 + 0.3 * e;
       }
-    } else if (craps.comeout && now > dice.resultUntil) {
-      // waiting for the come-out: mystery dice tumble gently, no set number
+    } else if (craps.mode !== 'point' && now > dice.resultUntil) {
+      // no live number: mystery dice tumble gently
       a = 0; b = 0;
       tiltA = Math.sin(now * 0.0016) * 0.4;
       tiltB = Math.cos(now * 0.0013) * 0.4;
@@ -1236,11 +1299,11 @@
     drawDie(x + ds * 0.62, y - hopPx * 0.7, ds, b, tiltB);
 
     // live craps indicator above the pad
-    if (state === 'play' && craps.point) {
+    if (state === 'play' && craps.mode === 'point') {
       ctx.textAlign = 'center';
       ctx.font = `800 ${Math.max(10, 3 * p)}px Inter, sans-serif`;
       ctx.fillStyle = `rgba(34, 211, 238, ${0.75 + 0.25 * Math.sin(now * 0.006)})`;
-      ctx.fillText('POINT ' + craps.point, x, PY(24.5));
+      ctx.fillText('POINT ' + craps.point, x, PY(dice.y - 9.5));
     }
   }
 
@@ -1568,75 +1631,91 @@
     ctx.globalAlpha = 1;
   }
 
-  // Glass window below the table: the bankroll + house rules at a glance
-  function drawCrapsWindow() {
-    const y0 = PY(170) + Math.max(5, S * 1.1);
-    const h = Math.max(44, S * 10.5);
-    if (y0 + h > H - 2) return;
-    const w = Math.min(W * 0.92, S * 66);
-    const x0 = CX - w / 2;
+  // Sub-level craps pit: a recessed mini-scene under glass, embedded in
+  // the felt like a real table's under-playfield window. The ball rolls
+  // over it — it's drawn beneath the ball with a glass sheen on top.
+  function drawCrapsSub() {
+    const x0 = PX(20, 68), x1 = PX(41, 68);
+    const y0 = PY(58.5), y1 = PY(78);
+    const w = x1 - x0, h = y1 - y0;
+    const p = PS(68);
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.055)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-    ctx.lineWidth = 1;
+    // recessed pit: dark felt with an inner shadow ring + wood frame
+    ctx.strokeStyle = '#5a3418';
+    ctx.lineWidth = Math.max(2.5, 1.5 * p);
+    ctx.fillStyle = '#062e25';
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 10);
+    if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 2 * p);
     else ctx.rect(x0, y0, w, h);
     ctx.fill();
     ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = Math.max(1.5, 0.8 * p);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0 + 1.5, y0 + 1.5, w - 3, h - 3, 1.8 * p);
+    else ctx.rect(x0 + 1.5, y0 + 1.5, w - 3, h - 3);
+    ctx.stroke();
 
-    // chip stack — grows with the bankroll
-    const stackX = x0 + w * 0.09;
-    const baseY = y0 + h * 0.8;
-    const n = Math.max(1, Math.min(9, Math.round(chips / 30)));
+    // chip stack (lower left of the pit)
+    const stackX = x0 + w * 0.16;
+    const baseY = y1 - h * 0.18;
+    const n = Math.max(1, Math.min(8, Math.round(chips / 30)));
     for (let i = 0; i < n; i++) {
-      const cy = baseY - i * h * 0.062;
+      const cy = baseY - i * 1.1 * p;
       ctx.fillStyle = i % 3 === 2 ? '#f472b6' : i % 3 === 1 ? '#22d3ee' : '#fbbf24';
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(stackX, cy, h * 0.155, h * 0.055, 0, 0, 7);
+      ctx.ellipse(stackX, cy, 2.6 * p, 0.95 * p, 0, 0, 7);
       ctx.fill();
       ctx.stroke();
     }
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.font = `800 ${h * 0.26}px Inter, sans-serif`;
+    ctx.font = `800 ${Math.max(10, 3 * p)}px Inter, sans-serif`;
     ctx.fillStyle = '#fbbf24';
-    ctx.fillText(String(chips), stackX + h * 0.24, baseY);
+    ctx.fillText(String(chips), stackX + 3.6 * p, baseY + 0.8 * p);
 
-    // mini craps card
-    const cardX = x0 + w * 0.3, cardW = w * 0.66;
-    const cardY = y0 + h * 0.12, cardH = h * 0.76;
-    ctx.fillStyle = '#0b4a3b';
-    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(cardX, cardY, cardW, cardH, 7);
-    else ctx.rect(cardX, cardY, cardW, cardH);
-    ctx.fill();
-    ctx.stroke();
-
-    const fs = Math.max(9, h * 0.19);
+    // rules card rows (right side of the pit)
+    const fs = Math.max(7, 1.75 * p);
     ctx.font = `700 ${fs}px Inter, sans-serif`;
     const rowSegs = (segs, ry, active) => {
-      ctx.globalAlpha = active ? 1 : 0.4;
-      let tx = cardX + cardW * 0.05;
+      ctx.globalAlpha = active ? 1 : 0.38;
+      let tx = x0 + w * 0.08;
       for (const [txt, col] of segs) {
         ctx.fillStyle = col;
         ctx.fillText(txt, tx, ry);
-        tx += ctx.measureText(txt).width + fs * 0.6;
+        tx += ctx.measureText(txt).width + fs * 0.55;
       }
       ctx.globalAlpha = 1;
     };
-    rowSegs([
-      ['COME OUT', 'rgba(255,255,255,0.6)'],
-      ['7·11 ✓ +40', '#5eead4'],
-      ['2·3·12 ✗', '#f87171']
-    ], cardY + cardH * 0.38, craps.comeout);
+    if (craps.mode === 'suspended') {
+      const left = Math.max(0, REBET_SCORE - (scoreThisBall - craps.suspendBase));
+      rowSegs([['BET LOST', '#f87171'], [`${left} PTS TO RE-BET`, 'rgba(255,255,255,0.8)']],
+        y0 + h * 0.3, true);
+    } else {
+      rowSegs([
+        ['7·11 ✓ +40', '#5eead4'],
+        ['2·3·12 ✗', '#f87171']
+      ], y0 + h * 0.3, craps.mode !== 'point');
+    }
     rowSegs([
       ['POINT ' + (craps.point ?? '—'), '#22d3ee'],
-      ['MADE ✓ +50', '#4ade80'],
-      ['7 OUT ✗', '#f87171']
-    ], cardY + cardH * 0.82, !craps.comeout);
+      ['✓ +50', '#4ade80'],
+      ['7 ✗', '#f87171']
+    ], y0 + h * 0.52, craps.mode === 'point');
+
+    // glass sheen over everything in the pit
+    const sheen = ctx.createLinearGradient(x0, y0, x1, y1);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
+    sheen.addColorStop(0.35, 'rgba(255,255,255,0.02)');
+    sheen.addColorStop(0.6, 'rgba(255,255,255,0.07)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0.01)');
+    ctx.fillStyle = sheen;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 2 * p);
+    else ctx.rect(x0, y0, w, h);
+    ctx.fill();
   }
 
   // ═══════════════ Main loop ═══════════════
@@ -1682,6 +1761,7 @@
 
     drawLights(t);
     drawScoreboard();
+    drawCrapsSub();
     drawLaneDots(t);
     drawSlings();
     drawWheel(t);
@@ -1695,7 +1775,6 @@
     drawBall();
     drawConfetti(dtMs);
     drawFloaters();
-    drawCrapsWindow();
   }
 
   // ═══════════════ Input ═══════════════
@@ -1771,10 +1850,9 @@
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
     const topPad = Math.max(64, H * 0.085);
-    const botPad = Math.max(54, H * 0.075); // room for the craps window
-    S = Math.min((W * 0.985) / TW, (H - topPad - botPad) / TH);
+    S = Math.min((W * 0.985) / TW, (H - topPad - 10) / TH);
     CX = W / 2;
-    TOPPX = topPad + Math.max(0, (H - topPad - botPad - S * TH) / 2);
+    TOPPX = topPad + Math.max(0, (H - topPad - 10 - S * TH) / 2);
 
     buildStatic();
   }
