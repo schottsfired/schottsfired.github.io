@@ -171,7 +171,7 @@
     <h1>Boardwalk<br>Royale</h1>
     <div class="byline">Built for Cynthia <span class="heart">♥</span></div>
     <p id="controls-hint"></p>
-    <p style="font-size:12px">Roll the dice up top — win chips on any number.<br>Just don't roll a <b>7</b>… 🎲</p>
+    <p style="font-size:12px">Every ball antes <b>10 chips</b>. Hit the dice to roll:<br><b>7 or 11</b> wins the come-out, then a point is set —<br>and rolling a <b>7</b> means seven out. 🎲</p>
     <button class="btn" id="play-btn">Play</button>
   </div>
 
@@ -263,8 +263,17 @@
   const floaters = []; // {x, y, text, color, life, vy}
 
   const GRAV = 62;
-  const MAXV = 135;
+  const MAXV = 150;
   const STEP = 1 / 240;
+
+  // Craps state: ante every ball, 7/11 wins the come-out, then a point
+  // is set and rolling a 7 loses — just like the real table
+  const ANTE = 10;
+  const craps = { comeout: true, point: null, antePaid: false };
+
+  // Rollover dots in the left orbit lane — collect the trail for a bonus
+  const laneDots = [{ y: 60, lit: true }, { y: 72, lit: true }, { y: 84, lit: true }, { y: 96, lit: true }];
+  let laneResetAt = 0;
 
   // ═══════════════ Colliders ═══════════════
   const segs = [];
@@ -515,22 +524,38 @@
     dice.a = 1 + (Math.random() * 6 | 0);
     dice.b = 1 + (Math.random() * 6 | 0);
     const total = dice.a + dice.b;
-    if (total === 7) {
-      addChips(-30);
-      floater(dice.x, dice.y + 10, 'SEVEN OUT  −30 🪙', '#f87171');
-      tone(280, 0.5, 'sawtooth', 0.11, 90);
-    } else if (total === 11) {
-      addChips(50);
-      floater(dice.x, dice.y + 10, 'YO ELEVEN!  +50 🪙', '#fbbf24');
-      arp([523, 659, 784, 1047], 80, 0.22, 0.12);
-    } else if (dice.a === dice.b) {
-      addChips(total * 2);
-      floater(dice.x, dice.y + 10, `DOUBLES!  +${total * 2} 🪙`, '#4ade80');
-      arp([440, 554, 659], 70, 0.18, 0.1);
+    if (craps.comeout) {
+      if (total === 7 || total === 11) {
+        addChips(40);
+        floater(dice.x, dice.y + 10, `NATURAL ${total}!  +40 🪙`, '#fbbf24');
+        arp([523, 659, 784, 1047], 80, 0.22, 0.12);
+      } else if (total === 2 || total === 3 || total === 12) {
+        floater(dice.x, dice.y + 10, `CRAPS ${total} — ante lost`, '#f87171');
+        tone(240, 0.35, 'sawtooth', 0.1, 110);
+      } else {
+        craps.comeout = false;
+        craps.point = total;
+        floater(dice.x, dice.y + 10, `POINT IS ${total}`, '#22d3ee');
+        tone(520, 0.15, 'sine', 0.1); tone(660, 0.18, 'sine', 0.09);
+      }
     } else {
-      addChips(total);
-      floater(dice.x, dice.y + 10, `${total}  +${total} 🪙`, '#fbbf24');
-      tone(660, 0.15, 'sine', 0.1);
+      if (total === 7) {
+        addChips(-20);
+        floater(dice.x, dice.y + 10, 'SEVEN OUT  −20 🪙', '#f87171');
+        tone(280, 0.5, 'sawtooth', 0.11, 90);
+        craps.comeout = true;
+        craps.point = null;
+      } else if (total === craps.point) {
+        addChips(25);
+        floater(dice.x, dice.y + 10, `POINT MADE!  +25 🪙`, '#4ade80');
+        arp([440, 554, 659, 880], 70, 0.2, 0.11);
+        craps.comeout = true;
+        craps.point = null;
+      } else {
+        addChips(5);
+        floater(dice.x, dice.y + 10, `${total}  +5 🪙`, '#fbbf24');
+        tone(660, 0.12, 'sine', 0.09);
+      }
     }
   }
 
@@ -559,6 +584,44 @@
     if (spd > MAXV) { ball.vx = ball.vx / spd * MAXV; ball.vy = ball.vy / spd * MAXV; }
     ball.x += ball.vx * STEP;
     ball.y += ball.vy * STEP;
+
+    // Rail-ride the top arc like a wireform: a fast ball near the arc is
+    // steered along the curve, so launch power controls how far around it
+    // carries — soft plunges fall down the right, full power crests left
+    if (ball.y < ARC.cy) {
+      const dxA = ball.x - ARC.cx, dyA = ball.y - ARC.cy;
+      const dA = Math.hypot(dxA, dyA);
+      const spdA = Math.hypot(ball.vx, ball.vy);
+      if (dA > ARC.r - 8 && spdA > 35) {
+        const nx = dxA / dA, ny = dyA / dA;
+        let tx = -ny, ty = nx;
+        if (tx * ball.vx + ty * ball.vy < 0) { tx = -tx; ty = -ty; }
+        const k = 10 * STEP;
+        ball.vx = ball.vx * (1 - k) + tx * spdA * k;
+        ball.vy = ball.vy * (1 - k) + ty * spdA * k;
+        const ns = Math.hypot(ball.vx, ball.vy) || 1;
+        ball.vx *= spdA / ns;
+        ball.vy *= spdA / ns;
+      }
+    }
+
+    // lane rollover dots
+    if (ball.x < 15) {
+      for (const d of laneDots) {
+        if (d.lit && Math.hypot(ball.x - 8.5, ball.y - d.y) < ball.r + 1.6) {
+          d.lit = false;
+          addScore(100);
+          tone(900 + d.y * 3, 0.07, 'sine', 0.08);
+          if (laneDots.every(l => !l.lit)) {
+            addScore(500);
+            addChips(10);
+            floater(24, 78, 'LANE SWEEP! +500 & +10 🪙', '#5eead4');
+            arp([659, 784, 988, 1319], 70, 0.2, 0.11);
+            laneResetAt = now + 10000;
+          }
+        }
+      }
+    }
 
     // resolve collisions (two passes for stability)
     for (let pass = 0; pass < 2; pass++) {
@@ -710,8 +773,18 @@
       // hidden test hook: drop the ball into the right outlane
       ball.x = 80, ball.y = 118; ball.vx = 0; ball.vy = 10;
     } else {
-      ball.vy = -(92 + 68 * charge);
+      // power maps to landing spot: soft plunges drop down the right,
+      // full power rides the arc all the way over to the left orbit
+      ball.vy = -(95 + 68 * charge) * (0.97 + Math.random() * 0.06);
       ball.vx = 0;
+    }
+    if (!craps.antePaid) {
+      craps.antePaid = true;
+      const bet = Math.min(ANTE, chips);
+      if (bet > 0) {
+        addChips(-bet);
+        floater(45.5, 122, 'ANTE −' + bet + ' 🪙', '#fbbf24');
+      }
     }
     launchTime = performance.now();
     tone(200, 0.25, 'triangle', 0.1, 620);
@@ -726,6 +799,9 @@
       return;
     }
     tone(300, 0.5, 'sawtooth', 0.1, 70);
+    craps.comeout = true;
+    craps.point = null;
+    craps.antePaid = false;
     if (ballNum >= 3) {
       gameOver();
     } else {
@@ -754,7 +830,10 @@
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     ensureAudio();
     score = 0; ballNum = 1; ballSaved = false;
+    craps.comeout = true; craps.point = null; craps.antePaid = false;
     for (const tg of targets) tg.up = true;
+    for (const d of laneDots) d.lit = true;
+    laneResetAt = 0;
     floaters.length = 0;
     resetBallToLane();
     state = 'play';
@@ -855,20 +934,31 @@
     c.closePath();
     c.fill();
 
-    // felt deco: faint big circle + title
-    c.strokeStyle = 'rgba(251, 191, 36, 0.12)';
-    c.lineWidth = 1.5;
+    // felt print: title above the scoreboard, dedication below
+    c.textAlign = 'center';
+    c.fillStyle = 'rgba(251, 191, 36, 0.22)';
+    c.font = `700 ${Math.max(9, S * 3.2)}px Inter, sans-serif`;
+    c.fillText('BOARDWALK ROYALE', PX(45.5, 90), PY(90));
+    c.font = `500 ${Math.max(7, S * 2.2)}px Inter, sans-serif`;
+    c.fillStyle = 'rgba(244, 114, 182, 0.25)';
+    c.fillText('★ FOR CYNTHIA ★', PX(45.5, 110.5), PY(110.5));
+
+    // flush scoreboard bezel — the digits are drawn live each frame
+    const bz = { x1: PX(34, 100), x2: PX(57, 100), y1: PY(94), y2: PY(106.5) };
+    c.fillStyle = 'rgba(6, 10, 14, 0.88)';
+    c.strokeStyle = 'rgba(251, 191, 36, 0.28)';
+    c.lineWidth = Math.max(1.5, S * 0.6);
     c.beginPath();
-    c.ellipse(PX(45.5, 95), PY(95), S * 24 * wScale(95 / TH), S * 21, 0, 0, 7);
+    if (c.roundRect) c.roundRect(bz.x1, bz.y1, bz.x2 - bz.x1, bz.y2 - bz.y1, S * 1.6);
+    else c.rect(bz.x1, bz.y1, bz.x2 - bz.x1, bz.y2 - bz.y1);
+    c.fill();
     c.stroke();
 
-    c.fillStyle = 'rgba(251, 191, 36, 0.16)';
-    c.font = `700 ${Math.max(10, S * 4.6)}px Inter, sans-serif`;
-    c.textAlign = 'center';
-    c.fillText('BOARDWALK ROYALE', PX(45.5, 96), PY(96));
-    c.font = `500 ${Math.max(8, S * 2.6)}px Inter, sans-serif`;
-    c.fillStyle = 'rgba(244, 114, 182, 0.2)';
-    c.fillText('★ FOR CYNTHIA ★', PX(45.5, 103), PY(103));
+    // craps fine print by the dice pad — the house rules, on the felt
+    c.fillStyle = 'rgba(251, 191, 36, 0.4)';
+    c.font = `600 ${Math.max(7, S * 1.9)}px Inter, sans-serif`;
+    c.fillText('ANTE 10 EVERY BALL', PX(45.5, 43.5), PY(43.5));
+    c.fillText('7·11 WINS — POINT SET, THEN 7 OUT', PX(45.5, 46.8), PY(46.8));
 
     // lighted lane inserts — soft glow strips marking the ball paths,
     // like the printed lanes on a real playfield
@@ -905,8 +995,8 @@
       c.stroke();
       c.restore();
     }
+    // (orbit lane markers are the live rollover dots, drawn per-frame)
     for (let i = 0; i < 3; i++) {
-      chevron(8.5, 62 + i * 15, 0, 1.6, 'rgba(94, 234, 212, 0.4)');         // orbit: down
       chevron(92.5, 120 - i * 18, Math.PI, 1.6, 'rgba(251, 191, 36, 0.4)'); // plunger: up
     }
     chevron(17, 132, 0.18, 1.4, 'rgba(94, 234, 212, 0.45)');                // inlane L: down
@@ -1079,6 +1169,14 @@
     const ds = r * 0.72;
     drawDie(x - ds * 0.62, y, ds, a, tiltA);
     drawDie(x + ds * 0.62, y, ds, b, tiltB);
+
+    // live craps indicator above the pad
+    if (state === 'play' && craps.point) {
+      ctx.textAlign = 'center';
+      ctx.font = `800 ${Math.max(10, 3 * p)}px Inter, sans-serif`;
+      ctx.fillStyle = `rgba(34, 211, 238, ${0.75 + 0.25 * Math.sin(now * 0.006)})`;
+      ctx.fillText('POINT ' + craps.point, x, PY(24.5));
+    }
   }
 
   function drawWheel(now) {
@@ -1267,6 +1365,81 @@
     }
   }
 
+  // ── 7-segment display, 1980s alarm-clock style ──
+  // segments: a top, b top-right, c bottom-right, d bottom, e bottom-left,
+  // f top-left, g middle
+  const SEG_MAP = {
+    '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc',
+    '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abcfgd'
+  };
+
+  function draw7(cx, cy, h, str, litCol, dimCol) {
+    const w = h * 0.56, gap = h * 0.34;
+    const totalW = str.length * (w + gap) - gap;
+    let x0 = cx - totalW / 2;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = h * 0.13;
+    const half = h / 2;
+    for (const ch of str) {
+      const segs = {
+        a: [x0, cy - half, x0 + w, cy - half],
+        b: [x0 + w, cy - half, x0 + w, cy],
+        c: [x0 + w, cy, x0 + w, cy + half],
+        d: [x0, cy + half, x0 + w, cy + half],
+        e: [x0, cy, x0, cy + half],
+        f: [x0, cy - half, x0, cy],
+        g: [x0, cy, x0 + w, cy]
+      };
+      const on = SEG_MAP[ch] || '';
+      for (const s of 'abcdefg') {
+        ctx.strokeStyle = on.includes(s) ? litCol : dimCol;
+        const [X1, Y1, X2, Y2] = segs[s];
+        ctx.beginPath();
+        ctx.moveTo(X1, Y1);
+        ctx.lineTo(X2, Y2);
+        ctx.stroke();
+      }
+      x0 += w + gap;
+    }
+    ctx.lineCap = 'butt';
+  }
+
+  function drawScoreboard() {
+    const p = PS(100);
+    const cx = PX(45.5, 100);
+    // score: six blocky amber digits
+    draw7(cx, PY(98.4), 4.2 * p, String(Math.min(score, 999999)).padStart(6, '0'),
+      '#fbbf24', 'rgba(251, 191, 36, 0.07)');
+    // info line: chips + ball, plain flat print
+    ctx.textAlign = 'center';
+    ctx.font = `600 ${Math.max(7, 1.9 * p)}px Inter, sans-serif`;
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.7)';
+    ctx.fillText(`CHIPS ${chips}  ·  BALL ${ballNum}`, cx, PY(104.4));
+  }
+
+  function drawLaneDots(now) {
+    for (const d of laneDots) {
+      const p = PS(d.y), x = PX(8.5, d.y), y = PY(d.y);
+      if (d.lit) {
+        const pulse = 0.7 + 0.3 * Math.sin(now * 0.005 + d.y);
+        ctx.fillStyle = `rgba(94, 234, 212, ${0.25 * pulse})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 2.4 * p, 0, 7);
+        ctx.fill();
+        ctx.fillStyle = `rgba(160, 255, 235, ${0.85 * pulse})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.15 * p, 0, 7);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = 'rgba(94, 234, 212, 0.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.15 * p, 0, 7);
+        ctx.stroke();
+      }
+    }
+  }
+
   function drawKickbacks() {
     for (const side of ['L', 'R']) {
       const kb = kickbacks[side];
@@ -1331,6 +1504,10 @@
         for (const tg of targets) tg.up = true;
         targetResetAt = 0;
       }
+      if (laneResetAt && t > laneResetAt) {
+        for (const d of laneDots) d.lit = true;
+        laneResetAt = 0;
+      }
       if (ballState === 'live' && (trail.length === 0 ||
           Math.hypot(ball.x - trail[trail.length - 1].x, ball.y - trail[trail.length - 1].y) > 1.4)) {
         trail.push({ x: ball.x, y: ball.y });
@@ -1344,6 +1521,8 @@
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
     drawLights(t);
+    drawScoreboard();
+    drawLaneDots(t);
     drawSlings();
     drawWheel(t);
     drawBumpers();
