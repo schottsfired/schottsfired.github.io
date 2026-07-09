@@ -291,11 +291,11 @@
   addSeg(3, 47, 3, 116);            // left wall
   addSeg(3, 116, 9, 148);           // left funnel (outlane outer side)
   addSeg(13.5, 121, 18, 149);       // left outlane/inlane divider rail
-  addSeg(18, 149, 28.5, 153);       // rail meets the flipper base (no gap)
+  addSeg(18, 149, 27.6, 152.3);     // rail meets the flipper cap tangentially (flush)
   addSeg(88, 52, 88, 162);          // lane divider wall
   addSeg(88, 116, 82, 148);         // right funnel (outlane outer side)
   addSeg(77.5, 121, 73, 149);       // right outlane/inlane divider rail
-  addSeg(73, 149, 62.5, 153);       // rail meets the flipper base (no gap)
+  addSeg(73, 149, 63.4, 152.3);     // rail meets the flipper cap tangentially (flush)
   addSeg(97, 47, 97, 162);          // lane outer wall
   addSeg(88, 162, 97, 162, { rest: 0.15 }); // lane floor
   // Left orbit lane: catches balls coming off the arc and returns them
@@ -355,11 +355,14 @@
   let targetResetAt = 0;
 
   // Flippers
+  // Lowered so the inlane wall meets the cap flush, shortened so the
+  // resting tips leave a real drain gap (~1.4 ball widths) — an idle
+  // ball always drains, like a real table
   function mkFlipper(px_, py_, restA, upA) {
-    return { px: px_, py: py_, len: 14, r: 2.0, restA, upA, a: restA, omega: 0, pressed: false };
+    return { px: px_, py: py_, len: 12.5, r: 2.0, restA, upA, a: restA, omega: 0, pressed: false };
   }
-  const flipL = mkFlipper(29.5, 153, 0.42, -0.62);
-  const flipR = mkFlipper(61.5, 153, Math.PI - 0.42, Math.PI + 0.62);
+  const flipL = mkFlipper(28.5, 154.2, 0.42, -0.62);
+  const flipR = mkFlipper(62.5, 154.2, Math.PI - 0.42, Math.PI + 0.62);
   const FLIP_SPEED = 24; // rad/s
 
   // ═══════════════ HUD ═══════════════
@@ -687,6 +690,12 @@
     if (location.hash === '#test-outlane') {
       // hidden test hook: drop the ball straight into the left outlane
       ball.x = 9; ball.y = 100; ball.vx = 0; ball.vy = 10;
+    } else if (location.hash === '#test-center') {
+      // hidden test hook: drop the ball dead-center between resting flippers
+      ball.x = 45.5; ball.y = 138; ball.vx = 0; ball.vy = 5;
+    } else if (location.hash === '#test-cradle') {
+      // hidden test hook: slow roll onto the right flipper base junction
+      ball.x = 68; ball.y = 146; ball.vx = -2; ball.vy = 2;
     } else {
       ball.vy = -(92 + 68 * charge);
       ball.vx = 0;
@@ -895,9 +904,9 @@
     c.lineWidth = Math.max(1.5, S * 0.9);
     const wallPairs = [
       [3, 47, 3, 116], [3, 116, 9, 148],
-      [13.5, 121, 18, 149], [18, 149, 28.5, 153],
+      [13.5, 121, 18, 149], [18, 149, 27.6, 152.3],
       [88, 52, 88, 162], [88, 116, 82, 148],
-      [77.5, 121, 73, 149], [73, 149, 62.5, 153],
+      [77.5, 121, 73, 149], [73, 149, 63.4, 152.3],
       [97, 47, 97, 162], [88, 162, 97, 162],
       [16, 48.5, 14, 52], [14, 52, 14, 100], [14, 100, 22, 114],
       [82, 96, 74, 114]
