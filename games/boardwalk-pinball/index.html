@@ -402,8 +402,16 @@
     kb.flash = 1;
     ball.x = kb.x;
     ball.y = kb.y - 2;
-    ball.vy = -108;
-    ball.vx = side === 'L' ? 3 : -3;
+    if (side === 'L') {
+      // fire straight up the outlane — it feeds the orbit channel, so a
+      // full-power kick sends the ball up and over the top arc
+      ball.vx = 0;
+      ball.vy = -MAXV;
+    } else {
+      // angled kick to clear the right deflector rail into the playfield
+      ball.vx = -13;
+      ball.vy = -134;
+    }
     addScore(75);
     floater(45.5, 118, 'KICKBACK!', '#4ade80');
     tone(160, 0.18, 'square', 0.12, 420);
@@ -627,7 +635,9 @@
         addChips(25);
         floater(78, 72, 'FULL HOUSE! +25 🪙', '#fbbf24');
         arp([523, 659, 784, 880, 1047], 70, 0.2, 0.12);
-        targetResetAt = now + 1400;
+        // long grace period — the cleared bank leaves the path to the
+        // dice open for a while before the targets pop back up
+        targetResetAt = now + 12000;
       }
 
       // flippers
@@ -696,6 +706,9 @@
     } else if (location.hash === '#test-cradle') {
       // hidden test hook: slow roll onto the right flipper base junction
       ball.x = 68; ball.y = 146; ball.vx = -2; ball.vy = 2;
+    } else if (location.hash === '#test-outlane-r') {
+      // hidden test hook: drop the ball into the right outlane
+      ball.x = 80, ball.y = 118; ball.vx = 0; ball.vy = 10;
     } else {
       ball.vy = -(92 + 68 * charge);
       ball.vx = 0;
@@ -1078,23 +1091,62 @@
     ctx.arc(x, y, R, 0, 7);
     ctx.stroke();
     wheel.flash = Math.max(0, wheel.flash - 0.04);
-    // spokes + gondolas
+    // spokes + gondola cabins (cabins hang upright like the real thing)
+    const rr = (rx, ry, rw, rh, rad) => {
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, rad);
+      else ctx.rect(rx, ry, rw, rh);
+    };
     for (let i = 0; i < 6; i++) {
       const ga = wheel.ang + i * Math.PI / 3;
       const gx = x + R * Math.cos(ga);
       const gy = y + R * Math.sin(ga);
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+      ctx.lineWidth = Math.max(1, S * 0.55);
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(gx, gy);
+      ctx.lineTo(gx, gy - 2.2 * p);
       ctx.stroke();
-      ctx.fillStyle = GONDOLA_COLORS[i];
+
+      // hanger pin + arm
+      ctx.fillStyle = '#94a3b8';
       ctx.beginPath();
-      ctx.arc(gx, gy, wheel.gonR * p, 0, 7);
+      ctx.arc(gx, gy - 2.2 * p, 0.45 * p, 0, 7);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.strokeStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(gx, gy - 2.2 * p);
+      ctx.lineTo(gx, gy - 1.8 * p);
+      ctx.stroke();
+
+      // cabin body
+      ctx.fillStyle = GONDOLA_COLORS[i];
+      rr(gx - 2.3 * p, gy - 1.8 * p, 4.6 * p, 4.1 * p, 0.9 * p);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 1;
       ctx.stroke();
+
+      // roof shade
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      rr(gx - 2.3 * p, gy - 1.8 * p, 4.6 * p, 1.0 * p, [0.9 * p, 0.9 * p, 0, 0]);
+      ctx.fill();
+
+      // window
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.95)';
+      rr(gx - 1.7 * p, gy - 0.5 * p, 1.55 * p, 1.5 * p, 0.25 * p);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.stroke();
+
+      // door
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      rr(gx + 0.2 * p, gy - 0.5 * p, 1.4 * p, 2.6 * p, 0.3 * p);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.beginPath();
+      ctx.arc(gx + 0.55 * p, gy + 0.85 * p, 0.16 * p, 0, 7);
+      ctx.fill();
     }
     // hub
     ctx.fillStyle = '#e2e8f0';
