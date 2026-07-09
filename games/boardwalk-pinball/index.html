@@ -291,23 +291,30 @@
   addSeg(3, 47, 3, 116);            // left wall
   addSeg(3, 116, 9, 148);           // left funnel (outlane outer side)
   addSeg(13.5, 121, 18, 149);       // left outlane/inlane divider rail
-  addSeg(18, 149, 29.5, 154.5);     // rail curves in to the flipper base
-  addSeg(20.5, 125, 24, 146);       // left inlane guide (floating rail)
+  addSeg(18, 149, 28.5, 153);       // rail meets the flipper base (no gap)
   addSeg(88, 52, 88, 162);          // lane divider wall
   addSeg(88, 116, 82, 148);         // right funnel (outlane outer side)
   addSeg(77.5, 121, 73, 149);       // right outlane/inlane divider rail
-  addSeg(73, 149, 61.5, 154.5);     // rail curves in to the flipper base
-  addSeg(70.5, 125, 67, 146);       // right inlane guide (floating rail)
+  addSeg(73, 149, 62.5, 153);       // rail meets the flipper base (no gap)
   addSeg(97, 47, 97, 162);          // lane outer wall
   addSeg(88, 162, 97, 162, { rest: 0.15 }); // lane floor
+  // Left orbit lane: catches balls coming off the arc and returns them
+  // cleanly down the left side, exiting inboard of the outlane
+  addSeg(16, 48.5, 14, 52);         // angled tip so the rail never catches a ball point-on
+  addSeg(14, 52, 14, 100);
+  addSeg(14, 100, 22, 114);
+  // Right deflector rail: steers balls off the right wall into the inlane
+  addSeg(82, 96, 74, 114);
   // One-way gate: lets the launched ball out of the lane (moving up),
   // deflects it into the playfield when it comes back down or drifts right
   addSeg(88, 52, 95, 43, { rest: 0.3, cond: b => b.vx > 0.5 || b.vy > 0 });
 
   // Slingshots (kicker face + two passive faces), casino-red triangles
+  // Slingshots — their outer edge doubles as the inlane's inner wall,
+  // like a real table (no separate rail behind them)
   const slings = [
-    { verts: [[27, 129], [34, 147], [25, 143.5]], flash: 0, cool: 0 },
-    { verts: [[64, 129], [57, 147], [66, 143.5]], flash: 0, cool: 0 }
+    { verts: [[26, 127], [34, 147], [24, 144]], flash: 0, cool: 0 },
+    { verts: [[65, 127], [57, 147], [67, 144]], flash: 0, cool: 0 }
   ];
 
   // Outlane kickbacks — like a real table, a pusher can fire the ball back
@@ -321,9 +328,9 @@
 
   // Pop bumpers — beach balls
   const bumpers = [
-    { x: 40, y: 58, r: 4.8, flash: 0 },
-    { x: 56, y: 52, r: 4.8, flash: 0 },
-    { x: 48.5, y: 71, r: 4.4, flash: 0 }
+    { x: 50, y: 50, r: 4.8, flash: 0 },
+    { x: 62, y: 56, r: 4.8, flash: 0 },
+    { x: 46, y: 68, r: 4.4, flash: 0 }
   ];
 
   // Craps pad (upper middle)
@@ -334,7 +341,7 @@
 
   // Ferris wheel (left mid) — rotating gondolas are moving colliders
   const wheel = {
-    x: 20, y: 74, orbit: 8.5, hubR: 3.0, gonR: 2.4,
+    x: 31, y: 62, orbit: 8.5, hubR: 3.0, gonR: 2.4,
     ang: 0, omega: 0.6, boost: 0, flash: 0
   };
   const GONDOLA_COLORS = ['#f87171', '#fbbf24', '#4ade80', '#22d3ee', '#a78bfa', '#f472b6'];
@@ -638,10 +645,16 @@
       return;
     }
 
-    // anti-stuck: a ball wedged in a pocket gets a gentle nudge
-    // (never while it's legitimately cradled in the flipper zone)
-    const inFlipperZone = ball.y > 144 && ball.x > 22 && ball.x < 69;
-    if (Math.hypot(ball.vx, ball.vy) < 1.6 && !inFlipperZone) {
+    // anti-stuck: a ball wedged in a pocket gets a gentle nudge —
+    // unless it's genuinely resting on a flipper (a legit cradle)
+    const onFlipper = [flipL, flipR].some(f => {
+      const tx = f.px + f.len * Math.cos(f.a), ty = f.py + f.len * Math.sin(f.a);
+      const dx = tx - f.px, dy = ty - f.py;
+      let t = ((ball.x - f.px) * dx + (ball.y - f.py) * dy) / (dx * dx + dy * dy);
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(ball.x - (f.px + t * dx), ball.y - (f.py + t * dy)) < f.r + ball.r + 1.2;
+    });
+    if (Math.hypot(ball.vx, ball.vy) < 1.6 && !onFlipper) {
       stuckT += STEP;
       if (stuckT > 2.5) {
         stuckT = 0;
@@ -835,17 +848,59 @@
     c.fillStyle = 'rgba(244, 114, 182, 0.2)';
     c.fillText('★ FOR CYNTHIA ★', PX(45.5, 103), PY(103));
 
+    // lighted lane inserts — soft glow strips marking the ball paths,
+    // like the printed lanes on a real playfield
+    function laneGlow(x1, y1, x2, y2, width) {
+      c.strokeStyle = 'rgba(94, 234, 212, 0.10)';
+      c.lineWidth = S * width;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(PX(x1, y1), PY(y1));
+      c.lineTo(PX(x2, y2), PY(y2));
+      c.stroke();
+      c.lineCap = 'butt';
+    }
+    laneGlow(8.5, 54, 8.5, 106, 7);      // left orbit lane
+    laneGlow(8.5, 106, 20, 121, 6);      // orbit exit sweep
+    laneGlow(16, 124, 21, 148, 5);       // left inlane
+    laneGlow(75, 124, 70, 148, 5);       // right inlane
+    laneGlow(92.5, 55, 92.5, 150, 6.5);  // plunger lane
+
+    // chevron arrows showing ball direction, like playfield art
+    function chevron(x, y, ang, size, col) {
+      const p = PS(y), cxp = PX(x, y), cyp = PY(y);
+      c.save();
+      c.translate(cxp, cyp);
+      c.rotate(ang);
+      c.strokeStyle = col;
+      c.lineWidth = Math.max(1.5, S * 0.8);
+      c.lineCap = 'round';
+      const s2 = size * p;
+      c.beginPath();
+      c.moveTo(-s2, -s2);
+      c.lineTo(0, 0);
+      c.lineTo(s2, -s2);
+      c.stroke();
+      c.restore();
+    }
+    for (let i = 0; i < 3; i++) {
+      chevron(8.5, 62 + i * 15, 0, 1.6, 'rgba(94, 234, 212, 0.4)');         // orbit: down
+      chevron(92.5, 120 - i * 18, Math.PI, 1.6, 'rgba(251, 191, 36, 0.4)'); // plunger: up
+    }
+    chevron(17, 132, 0.18, 1.4, 'rgba(94, 234, 212, 0.45)');                // inlane L: down
+    chevron(74, 132, -0.18, 1.4, 'rgba(94, 234, 212, 0.45)');               // inlane R: down
+
     // inner wall strokes (the actual collision walls, drawn crisp)
     c.strokeStyle = 'rgba(255, 235, 200, 0.25)';
     c.lineWidth = Math.max(1.5, S * 0.9);
     const wallPairs = [
       [3, 47, 3, 116], [3, 116, 9, 148],
-      [13.5, 121, 18, 149], [18, 149, 29.5, 154.5],
-      [20.5, 125, 24, 146],
+      [13.5, 121, 18, 149], [18, 149, 28.5, 153],
       [88, 52, 88, 162], [88, 116, 82, 148],
-      [77.5, 121, 73, 149], [73, 149, 61.5, 154.5],
-      [70.5, 125, 67, 146],
-      [97, 47, 97, 162], [88, 162, 97, 162]
+      [77.5, 121, 73, 149], [73, 149, 62.5, 153],
+      [97, 47, 97, 162], [88, 162, 97, 162],
+      [16, 48.5, 14, 52], [14, 52, 14, 100], [14, 100, 22, 114],
+      [82, 96, 74, 114]
     ];
     for (const [x1, y1, x2, y2] of wallPairs) {
       c.beginPath();
