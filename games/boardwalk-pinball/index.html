@@ -17,7 +17,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎡</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;800&family=Rye&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -252,7 +252,7 @@
   let ballState = 'ready'; // ready | charging | live
   let score = 0, ballNum = 1;
   let best = +(localStorage.getItem('pinball-best') || 0);
-  let chips = +(localStorage.getItem('pinball-chips') || 100);
+  let chips = 100; // per-game bankroll — only the high score persists
   let charge = 0, chargeT0 = 0;
   let launchTime = 0;
   const BALL_SAVE_MS = 10000;
@@ -345,7 +345,8 @@
   // Craps pad (upper middle)
   const dice = {
     x: 45.5, y: 33, r: 6.6,
-    a: 5, b: 3, rolling: false, rollEnd: 0, cool: 0, flash: 0, lastTick: 0
+    a: 5, b: 3, rolling: false, rollStart: 0, rollEnd: 0, cool: 0, flash: 0,
+    lastTick: 0, resultUntil: 0
   };
 
   // Ferris wheel (left mid) — rotating gondolas are moving colliders
@@ -389,7 +390,6 @@
 
   function addChips(n) {
     chips = Math.max(0, chips + n);
-    localStorage.setItem('pinball-chips', chips);
     updateHud();
   }
 
@@ -409,26 +409,45 @@
     if (!canKick) return;
     kicksThisBall++;
     kb.flash = 1;
+    // kick strength scales with how hard the ball came in, plus some
+    // spring randomness — a dribble gets a modest boost, a screamer
+    // can ride the orbit all the way over the top
+    const entrySpd = Math.hypot(ball.vx, ball.vy);
+    const power = Math.min(MAXV, 85 + entrySpd * 0.55 + Math.random() * 30);
     ball.x = kb.x;
     ball.y = kb.y - 2;
     if (side === 'L') {
-      // fire straight up the outlane — it feeds the orbit channel, so a
-      // full-power kick sends the ball up and over the top arc
       ball.vx = 0;
-      ball.vy = -MAXV;
+      ball.vy = -power;
     } else {
-      // angled kick to clear the right deflector rail into the playfield
-      ball.vx = -13;
-      ball.vy = -134;
+      // angled to clear the right deflector rail into the playfield
+      ball.vx = -13 * (power / 140);
+      ball.vy = -power * 0.99;
     }
     addScore(75);
     floater(45.5, 118, 'KICKBACK!', '#4ade80');
     tone(160, 0.18, 'square', 0.12, 420);
   }
 
-  function floater(x, y, text, color) {
-    floaters.push({ x, y, text, color: color || '#fff', life: 1, vy: -9 });
+  function floater(x, y, text, color, size) {
+    floaters.push({ x, y, text, color: color || '#fff', life: 1, vy: -9, size: size || 1 });
     if (floaters.length > 8) floaters.shift();
+  }
+
+  const confetti = [];
+  function confettiBurst(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      if (confetti.length > 90) confetti.shift();
+      confetti.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 30,
+        vy: -(6 + Math.random() * 16),
+        hue: Math.random() * 360,
+        rot: Math.random() * 6.28,
+        vr: (Math.random() - 0.5) * 12,
+        life: 1
+      });
+    }
   }
 
   // ═══════════════ Physics ═══════════════
@@ -512,22 +531,25 @@
 
   function rollDice(now) {
     dice.rolling = true;
-    dice.rollEnd = now + 800;
-    dice.cool = now + 1800;
+    dice.rollStart = now;
+    dice.rollEnd = now + 1100;
+    dice.cool = now + 2100;
     dice.flash = 1;
     addScore(300);
     tone(300, 0.1, 'square', 0.08, 500);
   }
 
-  function finishRoll() {
+  function finishRoll(now) {
     dice.rolling = false;
+    dice.resultUntil = now + 5000;
     dice.a = 1 + (Math.random() * 6 | 0);
     dice.b = 1 + (Math.random() * 6 | 0);
     const total = dice.a + dice.b;
+    tone(120, 0.14, 'square', 0.11); // dice settle thump
     if (craps.comeout) {
       if (total === 7 || total === 11) {
         addChips(40);
-        floater(dice.x, dice.y + 10, `NATURAL ${total}!  +40 🪙`, '#fbbf24');
+        floater(dice.x, dice.y + 10, `NATURAL ${total}!  +40 🪙`, '#fbbf24', 1.3);
         arp([523, 659, 784, 1047], 80, 0.22, 0.12);
       } else if (total === 2 || total === 3 || total === 12) {
         floater(dice.x, dice.y + 10, `CRAPS ${total} — ante lost`, '#f87171');
@@ -535,25 +557,26 @@
       } else {
         craps.comeout = false;
         craps.point = total;
-        floater(dice.x, dice.y + 10, `POINT IS ${total}`, '#22d3ee');
+        floater(dice.x, dice.y + 10, `POINT IS ${total}`, '#22d3ee', 1.2);
         tone(520, 0.15, 'sine', 0.1); tone(660, 0.18, 'sine', 0.09);
       }
     } else {
       if (total === 7) {
         addChips(-20);
-        floater(dice.x, dice.y + 10, 'SEVEN OUT  −20 🪙', '#f87171');
+        floater(dice.x, dice.y + 10, 'SEVEN OUT  −20 🪙', '#f87171', 1.2);
         tone(280, 0.5, 'sawtooth', 0.11, 90);
         craps.comeout = true;
         craps.point = null;
       } else if (total === craps.point) {
-        addChips(25);
-        floater(dice.x, dice.y + 10, `POINT MADE!  +25 🪙`, '#4ade80');
-        arp([440, 554, 659, 880], 70, 0.2, 0.11);
+        addChips(50);
+        floater(dice.x, dice.y + 10, `POINT MADE!  +50 🪙`, '#4ade80', 1.8);
+        confettiBurst(dice.x, dice.y, 44);
+        arp([523, 659, 784, 1047, 1319], 75, 0.24, 0.13);
         craps.comeout = true;
         craps.point = null;
       } else {
-        addChips(5);
-        floater(dice.x, dice.y + 10, `${total}  +5 🪙`, '#fbbf24');
+        addChips(total);
+        floater(dice.x, dice.y + 10, `${total}  +${total} 🪙`, '#fbbf24');
         tone(660, 0.12, 'sine', 0.09);
       }
     }
@@ -829,7 +852,7 @@
   function newGame() {
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     ensureAudio();
-    score = 0; ballNum = 1; ballSaved = false;
+    score = 0; ballNum = 1; ballSaved = false; chips = 100;
     craps.comeout = true; craps.point = null; craps.antePaid = false;
     for (const tg of targets) tg.up = true;
     for (const d of laneDots) d.lit = true;
@@ -934,14 +957,39 @@
     c.closePath();
     c.fill();
 
-    // felt print: title above the scoreboard, dedication below
+    // felt print: arched carnival title above the scoreboard — old
+    // boardwalk showbill lettering, gently curved like a real backglass
+    function archText(text, anchorY, radiusPx, fontPx) {
+      c.font = `${fontPx}px Rye, Georgia, serif`;
+      c.textAlign = 'center';
+      c.textBaseline = 'alphabetic';
+      const track = fontPx * 0.08;
+      const widths = [...text].map(ch => c.measureText(ch).width);
+      const total = widths.reduce((s2, w2) => s2 + w2, 0) + track * (text.length - 1);
+      const cx0 = PX(45.5, anchorY);
+      const cyArc = PY(anchorY) + radiusPx;
+      let ang = -(total / 2) / radiusPx;
+      for (let i = 0; i < text.length; i++) {
+        const half = (widths[i] / 2) / radiusPx;
+        ang += half;
+        c.save();
+        c.translate(cx0 + Math.sin(ang) * radiusPx, cyArc - Math.cos(ang) * radiusPx);
+        c.rotate(ang);
+        c.strokeStyle = 'rgba(20, 40, 30, 0.7)';
+        c.lineWidth = Math.max(2, fontPx * 0.09);
+        c.strokeText(text[i], 0, 0);
+        c.fillStyle = 'rgba(251, 191, 36, 0.62)';
+        c.fillText(text[i], 0, 0);
+        c.restore();
+        ang += half + track / radiusPx;
+      }
+    }
+    archText('BOARDWALK ROYALE', 88.5, S * 44, Math.max(15, S * 5.4));
+
     c.textAlign = 'center';
-    c.fillStyle = 'rgba(251, 191, 36, 0.22)';
-    c.font = `700 ${Math.max(9, S * 3.2)}px Inter, sans-serif`;
-    c.fillText('BOARDWALK ROYALE', PX(45.5, 90), PY(90));
     c.font = `500 ${Math.max(7, S * 2.2)}px Inter, sans-serif`;
-    c.fillStyle = 'rgba(244, 114, 182, 0.25)';
-    c.fillText('★ FOR CYNTHIA ★', PX(45.5, 110.5), PY(110.5));
+    c.fillStyle = 'rgba(244, 114, 182, 0.3)';
+    c.fillText('★ FOR CYNTHIA ★', PX(45.5, 111), PY(111));
 
     // flush scoreboard bezel — the digits are drawn live each frame
     const bz = { x1: PX(34, 100), x2: PX(57, 100), y1: PY(94), y2: PY(106.5) };
@@ -954,11 +1002,7 @@
     c.fill();
     c.stroke();
 
-    // craps fine print by the dice pad — the house rules, on the felt
-    c.fillStyle = 'rgba(251, 191, 36, 0.4)';
-    c.font = `600 ${Math.max(7, S * 1.9)}px Inter, sans-serif`;
-    c.fillText('ANTE 10 EVERY BALL', PX(45.5, 43.5), PY(43.5));
-    c.fillText('7·11 WINS — POINT SET, THEN 7 OUT', PX(45.5, 46.8), PY(46.8));
+    // (craps rules live in the glass window below the table)
 
     // lighted lane inserts — soft glow strips marking the ball paths,
     // like the printed lanes on a real playfield
@@ -1118,8 +1162,16 @@
     else ctx.rect(-hr, -hr, s, s);
     ctx.fill();
     ctx.stroke();
-    // pips
+    // pips ('?' for an unrolled die)
     ctx.fillStyle = '#b91c1c';
+    if (!val) {
+      ctx.font = `800 ${s * 0.62}px Inter, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', 0, s * 0.04);
+      ctx.restore();
+      return;
+    }
     const o = s * 0.26;
     const P = {
       1: [[0, 0]],
@@ -1152,23 +1204,36 @@
     dice.flash = Math.max(0, dice.flash - 0.05);
 
     let a = dice.a, b = dice.b, tiltA = -0.12, tiltB = 0.14;
+    let hop = 0, scale = 1;
     if (dice.rolling) {
-      if (now > dice.rollEnd) finishRoll();
+      if (now > dice.rollEnd) finishRoll(now);
       else {
-        if (now - dice.lastTick > 70) {
+        // tumbling roll: wild spin + bounces easing out, flicker slowing
+        const ph = Math.min(1, (now - dice.rollStart) / (dice.rollEnd - dice.rollStart));
+        const e = 1 - ph;
+        if (now - dice.lastTick > 45 + ph * ph * 220) {
           dice.lastTick = now;
           dice.a = 1 + (Math.random() * 6 | 0);
           dice.b = 1 + (Math.random() * 6 | 0);
           if (!muted && audio) tone(500 + Math.random() * 400, 0.03, 'square', 0.03);
         }
         a = dice.a; b = dice.b;
-        tiltA = Math.sin(now * 0.05) * 0.5;
-        tiltB = Math.cos(now * 0.06) * 0.5;
+        tiltA = Math.sin(now * 0.045) * 2.4 * e;
+        tiltB = Math.cos(now * 0.052) * 2.4 * e;
+        hop = Math.abs(Math.sin(ph * Math.PI * 3)) * e * 2.4;
+        scale = 1 + 0.3 * e;
       }
+    } else if (craps.comeout && now > dice.resultUntil) {
+      // waiting for the come-out: mystery dice tumble gently, no set number
+      a = 0; b = 0;
+      tiltA = Math.sin(now * 0.0016) * 0.4;
+      tiltB = Math.cos(now * 0.0013) * 0.4;
+      hop = (Math.sin(now * 0.002) + 1) * 0.3;
     }
-    const ds = r * 0.72;
-    drawDie(x - ds * 0.62, y, ds, a, tiltA);
-    drawDie(x + ds * 0.62, y, ds, b, tiltB);
+    const ds = r * 0.72 * scale;
+    const hopPx = hop * p;
+    drawDie(x - ds * 0.62, y - hopPx, ds, a, tiltA);
+    drawDie(x + ds * 0.62, y - hopPx * 0.7, ds, b, tiltB);
 
     // live craps indicator above the pad
     if (state === 'play' && craps.point) {
@@ -1412,6 +1477,7 @@
       '#fbbf24', 'rgba(251, 191, 36, 0.07)');
     // info line: chips + ball, plain flat print
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
     ctx.font = `600 ${Math.max(7, 1.9 * p)}px Inter, sans-serif`;
     ctx.fillStyle = 'rgba(251, 191, 36, 0.7)';
     ctx.fillText(`CHIPS ${chips}  ·  BALL ${ballNum}`, cx, PY(104.4));
@@ -1471,12 +1537,106 @@
       f.life -= 0.012;
       if (f.life <= 0) { floaters.splice(i, 1); continue; }
       const p = PS(f.y);
-      ctx.font = `800 ${Math.max(12, 3.6 * p)}px Inter, sans-serif`;
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = `800 ${Math.max(12, 3.6 * p * (f.size || 1))}px Inter, sans-serif`;
       ctx.fillStyle = f.color;
       ctx.globalAlpha = Math.min(1, f.life * 2);
       ctx.fillText(f.text, PX(f.x, f.y), PY(Math.max(f.y, 4)));
       ctx.globalAlpha = 1;
     }
+  }
+
+  function drawConfetti(dtMs) {
+    const dt = dtMs / 1000;
+    for (let i = confetti.length - 1; i >= 0; i--) {
+      const cf = confetti[i];
+      cf.vy += 42 * dt;
+      cf.x += cf.vx * dt;
+      cf.y += cf.vy * dt;
+      cf.rot += cf.vr * dt;
+      cf.life -= 0.55 * dt;
+      if (cf.life <= 0) { confetti.splice(i, 1); continue; }
+      const p = PS(cf.y);
+      ctx.save();
+      ctx.translate(PX(cf.x, cf.y), PY(Math.max(cf.y, 2)));
+      ctx.rotate(cf.rot);
+      ctx.globalAlpha = Math.min(1, cf.life * 1.6);
+      ctx.fillStyle = `hsl(${cf.hue}, 90%, 62%)`;
+      ctx.fillRect(-0.8 * p, -0.5 * p, 1.6 * p, 1.0 * p);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Glass window below the table: the bankroll + house rules at a glance
+  function drawCrapsWindow() {
+    const y0 = PY(170) + Math.max(5, S * 1.1);
+    const h = Math.max(44, S * 10.5);
+    if (y0 + h > H - 2) return;
+    const w = Math.min(W * 0.92, S * 66);
+    const x0 = CX - w / 2;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.055)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 10);
+    else ctx.rect(x0, y0, w, h);
+    ctx.fill();
+    ctx.stroke();
+
+    // chip stack — grows with the bankroll
+    const stackX = x0 + w * 0.09;
+    const baseY = y0 + h * 0.8;
+    const n = Math.max(1, Math.min(9, Math.round(chips / 30)));
+    for (let i = 0; i < n; i++) {
+      const cy = baseY - i * h * 0.062;
+      ctx.fillStyle = i % 3 === 2 ? '#f472b6' : i % 3 === 1 ? '#22d3ee' : '#fbbf24';
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(stackX, cy, h * 0.155, h * 0.055, 0, 0, 7);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = `800 ${h * 0.26}px Inter, sans-serif`;
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText(String(chips), stackX + h * 0.24, baseY);
+
+    // mini craps card
+    const cardX = x0 + w * 0.3, cardW = w * 0.66;
+    const cardY = y0 + h * 0.12, cardH = h * 0.76;
+    ctx.fillStyle = '#0b4a3b';
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(cardX, cardY, cardW, cardH, 7);
+    else ctx.rect(cardX, cardY, cardW, cardH);
+    ctx.fill();
+    ctx.stroke();
+
+    const fs = Math.max(9, h * 0.19);
+    ctx.font = `700 ${fs}px Inter, sans-serif`;
+    const rowSegs = (segs, ry, active) => {
+      ctx.globalAlpha = active ? 1 : 0.4;
+      let tx = cardX + cardW * 0.05;
+      for (const [txt, col] of segs) {
+        ctx.fillStyle = col;
+        ctx.fillText(txt, tx, ry);
+        tx += ctx.measureText(txt).width + fs * 0.6;
+      }
+      ctx.globalAlpha = 1;
+    };
+    rowSegs([
+      ['COME OUT', 'rgba(255,255,255,0.6)'],
+      ['7·11 ✓ +40', '#5eead4'],
+      ['2·3·12 ✗', '#f87171']
+    ], cardY + cardH * 0.38, craps.comeout);
+    rowSegs([
+      ['POINT ' + (craps.point ?? '—'), '#22d3ee'],
+      ['MADE ✓ +50', '#4ade80'],
+      ['7 OUT ✗', '#f87171']
+    ], cardY + cardH * 0.82, !craps.comeout);
   }
 
   // ═══════════════ Main loop ═══════════════
@@ -1533,7 +1693,9 @@
     drawFlipper(flipR);
     drawPlunger(t);
     drawBall();
+    drawConfetti(dtMs);
     drawFloaters();
+    drawCrapsWindow();
   }
 
   // ═══════════════ Input ═══════════════
@@ -1609,9 +1771,10 @@
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
     const topPad = Math.max(64, H * 0.085);
-    S = Math.min((W * 0.985) / TW, (H - topPad - 8) / TH);
+    const botPad = Math.max(54, H * 0.075); // room for the craps window
+    S = Math.min((W * 0.985) / TW, (H - topPad - botPad) / TH);
     CX = W / 2;
-    TOPPX = topPad + Math.max(0, (H - topPad - 8 - S * TH) / 2);
+    TOPPX = topPad + Math.max(0, (H - topPad - botPad - S * TH) / 2);
 
     buildStatic();
   }
@@ -1625,6 +1788,9 @@
 
   // ═══════════════ Boot ═══════════════
   resize();
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => buildStatic()); // redraw title once Rye loads
+  }
   updateHud();
   document.getElementById('hud-best').textContent = best.toLocaleString();
   requestAnimationFrame(loop);
