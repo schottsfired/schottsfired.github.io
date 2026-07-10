@@ -321,9 +321,9 @@
   addSeg(82, 96, 74, 114);
 
   // rollover lane divider walls
-  addSeg(44, 10, 44, 22);
-  addSeg(50, 10, 50, 22);
-  addSeg(56, 10, 56, 22);
+  addSeg(44, 12, 44, 19);
+  addSeg(50, 12, 50, 19);
+  addSeg(56, 12, 56, 19);
 
   // Rubber posts guarding the outlane entrances (real-table protection)
   const posts = [
@@ -944,7 +944,7 @@
         arp([523, 659, 784, 880, 1047], 70, 0.2, 0.12);
         // long grace period — the cleared bank leaves the path to the
         // dice open for a while before the targets pop back up
-        targetResetAt = now + 12000;
+        targetResetAt = now + 15000;
       }
 
       // flippers
@@ -1296,7 +1296,7 @@
       [97, 47, 97, 162], [88, 162, 97, 162],
       [16, 48.5, 14, 52], [14, 52, 14, 100], [14, 100, 24, 112],
       [82, 96, 74, 114],
-      [44, 10, 44, 22], [50, 10, 50, 22], [56, 10, 56, 22]
+      [44, 12, 44, 19], [50, 12, 50, 19], [56, 12, 56, 19]
     ];
     for (const [x1, y1, x2, y2] of wallPairs) {
       c.beginPath();
@@ -1847,7 +1847,7 @@
       ctx.fillStyle = `rgba(255,255,255,${0.5 + 0.3 * Math.sin(now * 0.005)})`;
       ctx.font = `500 ${Math.max(11, S * 3)}px Inter, sans-serif`;
       ctx.fillText(ballState === 'charging' ? 'release!' : (isTouch ? 'hold to launch' : 'hold SPACE to launch'),
-        PX(50, 132), PY(126));
+        PX(45.5, 137), PY(137));
     }
   }
 
@@ -1925,6 +1925,60 @@
         ctx.stroke();
       }
     }
+  }
+
+  // Arched spade inserts below the scoreboard — each lamp points at a
+  // feature and lights up like a real machine only while that feature
+  // is available to shoot
+  const aimLamps = [
+    { x: 35.5, y: 125, tx: 26, ty: 44 },  // ferris wheel
+    { x: 42, y: 122, tx: 50, ty: 42 },    // craps dice
+    { x: 49.5, y: 122, tx: 68, ty: 50 },  // bumpers
+    { x: 56, y: 125, tx: 79, ty: 76 }     // full house bank
+  ];
+
+  function drawAimLamps(now) {
+    const avail = [
+      now > captureCool,                                                // a seat is free
+      craps.mode !== 'suspended' && now > dice.cool && !dice.rolling,   // dice ready
+      true,                                                             // bumpers always
+      targets.some(tg => tg.up)                                         // bank standing
+    ];
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < aimLamps.length; i++) {
+      const L = aimLamps[i];
+      const lit = state === 'play' && avail[i];
+      const p = PS(L.y), x = PX(L.x, L.y), y = PY(L.y);
+      const ang = Math.atan2(PY(L.ty) - y, PX(L.tx, L.ty) - x) + Math.PI / 2;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(ang);
+      if (lit) {
+        // warm bulb halo bleeding through the playfield insert
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 3.6 * p);
+        g.addColorStop(0, 'rgba(251, 191, 36, 0.55)');
+        g.addColorStop(1, 'rgba(251, 191, 36, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, 3.6 * p, 0, 7);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 2 * p, 0, 7);
+      ctx.fill();
+      ctx.strokeStyle = lit ? 'rgba(251, 191, 36, 0.9)' : 'rgba(255, 255, 255, 0.16)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.font = `${2.7 * p}px Inter, sans-serif`;
+      ctx.fillStyle = lit
+        ? `rgba(255, 224, 130, ${0.85 + 0.15 * Math.sin(now * 0.008 + i)})`
+        : 'rgba(255, 255, 255, 0.22)';
+      ctx.fillText('♠', 0, 0.2 * p);
+      ctx.restore();
+    }
+    ctx.textBaseline = 'alphabetic';
   }
 
   function drawKickbacks() {
@@ -2163,6 +2217,7 @@
     drawBumpers();
     drawDice(t);
     drawTargets();
+    drawAimLamps(t);
     drawKickbacks();
     drawFlipper(flipL);
     drawFlipper(flipR);
