@@ -320,11 +320,21 @@
   // Right deflector rail: steers balls off the right wall into the inlane
   addSeg(82, 96, 74, 114);
 
+  // rollover lane divider walls
+  addSeg(44, 10, 44, 22);
+  addSeg(50, 10, 50, 22);
+  addSeg(56, 10, 56, 22);
+
   // Rubber posts guarding the outlane entrances (real-table protection)
   const posts = [
     { x: 11, y: 114, r: 1.6 },
     { x: 80, y: 114, r: 1.6 }
   ];
+
+  // Candy pinwheel spinner gating the left channel mouth: everything
+  // passing through — arc launches coming down, kickbacks going up —
+  // gets scattered in a random direction
+  const spinner = { x: 8.5, y: 55, r: 2.7, rot: 0, spin: 2, flash: 0 };
   // One-way gate: lets the launched ball out of the lane (moving up),
   // deflects it into the playfield when it comes back down or drifts right
   addSeg(88, 52, 95, 43, { rest: 0.3, cond: b => b.vx > 0.5 || b.vy > 0 });
@@ -361,13 +371,27 @@
     }
   }
 
-  // Pop bumpers — beach balls, clustered right to guard the card bank
-  // (the middle channel up to the dice stays open)
+  // Pop bumpers — beach balls guarding the card bank; just two, so the
+  // route past the dice up to the rollover lanes stays open
   const bumpers = [
-    { x: 64, y: 44, r: 4.6, flash: 0 },
-    { x: 58, y: 58, r: 4.6, flash: 0 },
-    { x: 71, y: 55, r: 4.2, flash: 0 }
+    { x: 66, y: 46, r: 4.6, flash: 0 },
+    { x: 73, y: 58, r: 4.2, flash: 0 }
   ];
+
+  // B·U·C·K rollover lanes across the top of the table
+  const rollovers = [
+    { x: 41, y: 16, ch: 'B', lit: false },
+    { x: 47, y: 16, ch: 'U', lit: false },
+    { x: 53, y: 16, ch: 'C', lit: false },
+    { x: 59, y: 16, ch: 'K', lit: false }
+  ];
+  let rolloverResetAt = 0;
+
+  // Night mode: bounce off closed Ferris cars three times without
+  // getting a seat and the ride lights up its rope lights while the
+  // whole boardwalk dims for the rest of the ball
+  let nightMode = false;
+  let wheelBounces = 0;
 
   // Craps pad (upper middle)
   const dice = {
@@ -456,7 +480,9 @@
     // spring randomness — a dribble gets a modest boost, a screamer
     // can ride the orbit all the way over the top
     const entrySpd = Math.hypot(ball.vx, ball.vy);
-    const power = Math.min(MAXV, 85 + entrySpd * 0.55 + Math.random() * 30);
+    // strong floor so the kick always clears the channel and reaches the
+    // spinner at the top, which scatters it back into play
+    const power = Math.min(MAXV, 112 + entrySpd * 0.4 + Math.random() * 25);
     ball.x = kb.x;
     ball.y = kb.y - 2;
     if (side === 'L') {
@@ -562,13 +588,15 @@
       const e = 0.4;
       ball.vx -= (1 + e) * vn * nx;
       ball.vy -= (1 + e) * vn * ny;
+      // rubber grip on real impacts only — a resting ball must keep
+      // rolling freely along the flipper, never stick to it
+      if (vn < -8) {
+        const tx = -ny, ty = nx;
+        const vt = (ball.vx - sx) * tx + (ball.vy - sy) * ty;
+        ball.vx -= vt * 0.1 * tx;
+        ball.vy -= vt * 0.1 * ty;
+      }
     }
-    // rubber grip: damp sliding along the flipper so shots follow the
-    // flipper face instead of skidding — much easier to aim
-    const tx = -ny, ty = nx;
-    const vt = (ball.vx - sx) * tx + (ball.vy - sy) * ty;
-    ball.vx -= vt * 0.1 * tx;
-    ball.vy -= vt * 0.1 * ty;
     return true;
   }
 
@@ -671,6 +699,10 @@
     wheel.ang += wOmega * STEP;
     wheel.boost = Math.max(0, wheel.boost - 1.6 * STEP);
 
+    // spinner
+    spinner.rot += spinner.spin * STEP;
+    spinner.spin = Math.max(2, spinner.spin - 9 * STEP);
+
     // free come-out roll fires on its own shortly after launch
     if (autoRollAt && now > autoRollAt) {
       autoRollAt = 0;
@@ -750,6 +782,27 @@
       tone(500, 0.1, 'triangle', 0.07, 800);
     }
 
+    // B·U·C·K rollover lanes at the top
+    if (ball.y < 25) {
+      for (const ro of rollovers) {
+        if (!ro.lit && Math.hypot(ball.x - ro.x, ball.y - ro.y) < ball.r + 1.8) {
+          ro.lit = true;
+          addScore(200);
+          tone(760 + ro.x * 6, 0.08, 'sine', 0.09);
+          if (rollovers.every(r => r.lit)) {
+            addScore(2500);
+            floater(50, 30, 'B·U·C·K BONUS! +2500', '#fbbf24', 1.5);
+            coinBurst(50, 18, 16);
+            arp([523, 659, 784, 1047, 1319], 70, 0.22, 0.12);
+            // the bonus also re-arms a spent kickback
+            if (!kickbacks.L.armed) kickbacks.L.armed = true;
+            else if (!kickbacks.R.armed) kickbacks.R.armed = true;
+            rolloverResetAt = now + 1500;
+          }
+        }
+      }
+    }
+
     // lane rollover dots
     if (ball.x < 15) {
       for (const d of laneDots) {
@@ -809,6 +862,20 @@
       // rubber posts
       for (const po of posts) reflectCircle(po.x, po.y, po.r, 0.8, 4);
 
+      // randomizer spinner: reflect, then twist the exit direction
+      if (reflectCircle(spinner.x, spinner.y, spinner.r, 0.5, 6)) {
+        const a = (Math.random() - 0.5) * 1.1;
+        const cosA = Math.cos(a), sinA = Math.sin(a);
+        const vx0 = ball.vx, vy0 = ball.vy;
+        ball.vx = vx0 * cosA - vy0 * sinA;
+        ball.vy = vx0 * sinA + vy0 * cosA;
+        spinner.flash = 1;
+        spinner.spin = 16;
+        addScore(100);
+        bumpKickCharge();
+        tone(1000 + Math.random() * 500, 0.06, 'triangle', 0.07);
+      }
+
       // ferris wheel: hub + moving gondolas
       if (reflectCircle(wheel.x, wheel.y, wheel.hubR, 0.6, 9)) {
         wheel.flash = 1; wheel.boost = 2.2;
@@ -828,6 +895,7 @@
               Math.hypot(ball.x - gx, ball.y - gy) < wheel.gonR + ball.r) {
             captured = { until: now + 1100, idx: i };
             captureCool = now + 5000;
+            wheelBounces = 0; // got a seat
             wheel.flash = 1; wheel.boost = 1.6;
             addScore(250);
             floater(wheel.x, wheel.y - 14, 'ALL ABOARD!', '#22d3ee');
@@ -841,6 +909,13 @@
             addScore(250);
             bumpKickCharge();
             tone(700 + i * 40, 0.08, 'triangle', 0.08);
+            // turned away three times → the ride lights up for the night
+            if (!nightMode && ++wheelBounces >= 3) {
+              nightMode = true;
+              addScore(500);
+              floater(45.5, 90, 'NIGHT MODE!', '#a78bfa', 1.5);
+              arp([392, 494, 587, 784], 90, 0.25, 0.12);
+            }
           }
         }
       }
@@ -981,6 +1056,10 @@
     craps.point = null;
     autoRollAt = 0;
     dice.rolling = false;
+    nightMode = false;
+    wheelBounces = 0;
+    for (const ro of rollovers) ro.lit = false;
+    rolloverResetAt = 0;
     if (ballNum >= 3) {
       gameOver();
     } else {
@@ -1011,6 +1090,9 @@
     score = 0; ballNum = 1; ballSaved = false; chips = 100;
     craps.mode = 'idle'; craps.point = null;
     autoRollAt = 0; dice.rolling = false; dice.resultUntil = 0;
+    nightMode = false; wheelBounces = 0;
+    for (const ro of rollovers) ro.lit = false;
+    rolloverResetAt = 0;
     for (const tg of targets) tg.up = true;
     for (const d of laneDots) d.lit = true;
     laneResetAt = 0;
@@ -1208,7 +1290,8 @@
       [78.5, 119, 74, 149], [74, 149, 63.4, 152.3],
       [97, 47, 97, 162], [88, 162, 97, 162],
       [16, 48.5, 14, 52], [14, 52, 14, 100], [14, 100, 24, 112],
-      [82, 96, 74, 114]
+      [82, 96, 74, 114],
+      [44, 10, 44, 22], [50, 10, 50, 22], [56, 10, 56, 22]
     ];
     for (const [x1, y1, x2, y2] of wallPairs) {
       c.beginPath();
@@ -1530,6 +1613,79 @@
     ctx.beginPath();
     ctx.arc(x, y, wheel.hubR * p * 0.45, 0, 7);
     ctx.fill();
+
+    // night mode: rope lights strung around the rim and down the spokes
+    if (nightMode) {
+      for (let i = 0; i < 16; i++) {
+        const la = wheel.ang * 0.5 + (i / 16) * Math.PI * 2;
+        const lx = x + (R + 1.2 * p) * Math.cos(la);
+        const ly = y + (R + 1.2 * p) * Math.sin(la);
+        const hue = (i * 40 + now * 0.08) % 360;
+        ctx.fillStyle = `hsla(${hue}, 95%, 65%, 0.95)`;
+        ctx.beginPath();
+        ctx.arc(lx, ly, 0.65 * p, 0, 7);
+        ctx.fill();
+      }
+      for (let i = 0; i < 6; i++) {
+        const ga = wheel.ang + i * Math.PI / 3;
+        const mx = x + R * 0.5 * Math.cos(ga);
+        const my = y + R * 0.5 * Math.sin(ga);
+        ctx.fillStyle = `hsla(${(i * 60 + now * 0.1) % 360}, 95%, 68%, 0.9)`;
+        ctx.beginPath();
+        ctx.arc(mx, my, 0.55 * p, 0, 7);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawRollovers(now) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const ro of rollovers) {
+      const p = PS(ro.y), x = PX(ro.x, ro.y), y = PY(ro.y);
+      if (ro.lit) {
+        ctx.fillStyle = `rgba(251, 191, 36, ${0.85 + 0.15 * Math.sin(now * 0.006)})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 2 * p, 0, 7);
+        ctx.fill();
+        ctx.fillStyle = '#1a0f00';
+      } else {
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x, y, 2 * p, 0, 7);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.55)';
+      }
+      ctx.font = `800 ${Math.max(8, 2.4 * p)}px Inter, sans-serif`;
+      ctx.fillText(ro.ch, x, y + 0.5);
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawSpinner() {
+    const p = PS(spinner.y), x = PX(spinner.x, spinner.y), y = PY(spinner.y);
+    const r = spinner.r * p;
+    // candy pinwheel wedges
+    const cols = ['#f472b6', '#fef9c3', '#22d3ee', '#fef9c3', '#fbbf24', '#fef9c3'];
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = cols[i];
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.arc(x, y, r, spinner.rot + i * Math.PI / 3, spinner.rot + (i + 1) * Math.PI / 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.strokeStyle = spinner.flash > 0 ? `rgba(255,255,255,${0.5 + spinner.flash * 0.5})` : 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = Math.max(1, 0.5 * p);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 7);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.25, 0, 7);
+    ctx.fill();
+    spinner.flash = Math.max(0, spinner.flash - 0.04);
   }
 
   function drawTargets() {
@@ -1967,6 +2123,10 @@
         for (const d of laneDots) d.lit = true;
         laneResetAt = 0;
       }
+      if (rolloverResetAt && t > rolloverResetAt) {
+        for (const ro of rollovers) ro.lit = false;
+        rolloverResetAt = 0;
+      }
       if (ballState === 'live' && (trail.length === 0 ||
           Math.hypot(ball.x - trail[trail.length - 1].x, ball.y - trail[trail.length - 1].y) > 1.4)) {
         trail.push({ x: ball.x, y: ball.y });
@@ -1979,12 +2139,20 @@
     ctx.drawImage(staticLayer, 0, 0); // 1:1 backing-store pixels — full clear + table
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
+    // night mode: the boardwalk dims and everything lit glows brighter
+    if (nightMode) {
+      ctx.fillStyle = 'rgba(8, 6, 26, 0.34)';
+      ctx.fillRect(0, 0, W, H);
+    }
+
     drawLights(t);
     drawScoreboard();
     drawCrapsSub();
     drawLaneDots(t);
     drawSlings();
     drawWheel(t);
+    drawSpinner();
+    drawRollovers(t);
     drawBumpers();
     drawDice(t);
     drawTargets();
