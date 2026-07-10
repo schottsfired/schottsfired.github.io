@@ -331,10 +331,11 @@
     { x: 80, y: 114, r: 1.6 }
   ];
 
-  // Candy pinwheel spinner gating the left channel mouth: everything
-  // passing through — arc launches coming down, kickbacks going up —
-  // gets scattered in a random direction
-  const spinner = { x: 8.5, y: 55, r: 2.7, rot: 0, spin: 2, flash: 0 };
+  // Flat rollover spinner painted on the left channel floor: no
+  // collision — the ball rolls straight over it, sets it whirling, and
+  // picks up a gentle random twist. Softens kickback exits and launch
+  // returns without ever trapping the ball.
+  const spinner = { x: 8.5, y: 55, r: 2.7, rot: 0, spin: 2, flash: 0, cool: 0 };
   // One-way gate: lets the launched ball out of the lane (moving up),
   // deflects it into the playfield when it comes back down or drifts right
   addSeg(88, 52, 95, 43, { rest: 0.3, cond: b => b.vx > 0.5 || b.vy > 0 });
@@ -862,18 +863,22 @@
       // rubber posts
       for (const po of posts) reflectCircle(po.x, po.y, po.r, 0.8, 4);
 
-      // randomizer spinner: reflect, then twist the exit direction
-      if (reflectCircle(spinner.x, spinner.y, spinner.r, 0.5, 6)) {
-        const a = (Math.random() - 0.5) * 1.1;
-        const cosA = Math.cos(a), sinA = Math.sin(a);
-        const vx0 = ball.vx, vy0 = ball.vy;
-        ball.vx = vx0 * cosA - vy0 * sinA;
-        ball.vy = vx0 * sinA + vy0 * cosA;
-        spinner.flash = 1;
-        spinner.spin = 16;
-        addScore(100);
-        bumpKickCharge();
-        tone(1000 + Math.random() * 500, 0.06, 'triangle', 0.07);
+      // flat rollover spinner: the ball passes over it freely; it whirls
+      // with the ball's speed and gives the path a gentle random twist
+      if (Math.hypot(ball.x - spinner.x, ball.y - spinner.y) < spinner.r + ball.r) {
+        spinner.spin = Math.min(20, 4 + Math.hypot(ball.vx, ball.vy) * 0.15);
+        if (now > spinner.cool) {
+          spinner.cool = now + 700;
+          const a = (Math.random() - 0.5) * 0.5;
+          const cosA = Math.cos(a), sinA = Math.sin(a);
+          const vx0 = ball.vx, vy0 = ball.vy;
+          ball.vx = vx0 * cosA - vy0 * sinA;
+          ball.vy = vx0 * sinA + vy0 * cosA;
+          spinner.flash = 1;
+          addScore(100);
+          bumpKickCharge();
+          tone(1000 + Math.random() * 500, 0.06, 'triangle', 0.07);
+        }
       }
 
       // ferris wheel: hub + moving gondolas
@@ -1668,6 +1673,7 @@
     const r = spinner.r * p;
     // candy pinwheel wedges
     const cols = ['#f472b6', '#fef9c3', '#22d3ee', '#fef9c3', '#fbbf24', '#fef9c3'];
+    ctx.globalAlpha = 0.8; // flat, painted into the table — the ball rolls over it
     for (let i = 0; i < 6; i++) {
       ctx.fillStyle = cols[i];
       ctx.beginPath();
@@ -1676,6 +1682,7 @@
       ctx.closePath();
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = spinner.flash > 0 ? `rgba(255,255,255,${0.5 + spinner.flash * 0.5})` : 'rgba(0,0,0,0.4)';
     ctx.lineWidth = Math.max(1, 0.5 * p);
     ctx.beginPath();
