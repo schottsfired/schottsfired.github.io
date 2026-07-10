@@ -258,7 +258,7 @@
   const BALL_SAVE_MS = 10000;
   let ballSaved = false;
 
-  const ball = { x: 92.5, y: 158, vx: 0, vy: 0, r: 2.6 };
+  const ball = { x: 92.5, y: 158, vx: 0, vy: 0, r: 2.6, air: 0 };
   const trail = [];
   const floaters = []; // {x, y, text, color, life, vy}
 
@@ -340,11 +340,26 @@
   // Outlane kickbacks — like a real table, a pusher can fire the ball back
   // out of the drain channel. Generous: always saves a low-scoring ball.
   const kickbacks = {
-    L: { x: 13, y: 152.5, flash: 0, cool: 0 },
-    R: { x: 78, y: 152.5, flash: 0, cool: 0 }
+    L: { x: 13, y: 152.5, flash: 0, cool: 0, armed: true },
+    R: { x: 78, y: 152.5, flash: 0, cool: 0, armed: true }
   };
-  let kicksThisBall = 0;
+  // firing a kickback disarms it; hitting table features charges a spent
+  // one back up (left first — it's the dangerous side)
+  let kickCharge = 0;
+  const KICK_CHARGE_N = 8;
   let scoreThisBall = 0;
+
+  function bumpKickCharge() {
+    if (kickbacks.L.armed && kickbacks.R.armed) return;
+    kickCharge++;
+    if (kickCharge >= KICK_CHARGE_N) {
+      kickCharge = 0;
+      const side = !kickbacks.L.armed ? 'L' : 'R';
+      kickbacks[side].armed = true;
+      floater(45.5, 118, side === 'L' ? '◀ KICKBACK RECHARGED' : 'KICKBACK RECHARGED ▶', '#4ade80');
+      tone(520, 0.12, 'sine', 0.1); tone(780, 0.16, 'sine', 0.09);
+    }
+  }
 
   // Pop bumpers — beach balls, clustered right to guard the card bank
   // (the middle channel up to the dice stays open)
@@ -368,6 +383,15 @@
     x: 26, y: 44, orbit: 8.5, hubR: 3.0, gonR: 2.4,
     ang: 0, omega: 0.6, boost: 0, flash: 0
   };
+  // odd-numbered cars ride with their doors open — the ball can hop in,
+  // take a lap, and get flung out toward the dice with a free roll
+  let captured = null; // { until, idx }
+  let captureCool = 0;
+
+  function gondolaPos(i) {
+    const ga = wheel.ang + i * Math.PI / 3;
+    return { x: wheel.x + wheel.orbit * Math.cos(ga), y: wheel.y + wheel.orbit * Math.sin(ga) };
+  }
   const GONDOLA_COLORS = ['#f87171', '#fbbf24', '#4ade80', '#22d3ee', '#a78bfa', '#f472b6'];
 
   // Card drop targets (right side bank): ♠ ♥ ♦
@@ -387,7 +411,7 @@
   }
   const flipL = mkFlipper(28.5, 154.2, 0.42, -0.62);
   const flipR = mkFlipper(62.5, 154.2, Math.PI - 0.42, Math.PI + 0.62);
-  const FLIP_SPEED = 24; // rad/s
+  const FLIP_SPEED = 21; // rad/s — slower sweep gives timing-based aim
 
   // ═══════════════ HUD ═══════════════
   const hudScore = document.getElementById('hud-score');
@@ -424,11 +448,9 @@
     const kb = kickbacks[side];
     if (now < kb.cool) return;
     kb.cool = now + 1200;
-    // Real-table generosity: first outlane visit always kicks back,
-    // and a struggling ball (low score) earns a second save.
-    const canKick = kicksThisBall < 1 || (scoreThisBall < 800 && kicksThisBall < 2);
-    if (!canKick) return;
-    kicksThisBall++;
+    if (!kb.armed) return;
+    kb.armed = false;
+    kickCharge = 0;
     kb.flash = 1;
     // kick strength scales with how hard the ball came in, plus some
     // spring randomness — a dribble gets a modest boost, a screamer
@@ -456,20 +478,24 @@
   }
 
   const confetti = [];
-  function confettiBurst(x, y, n) {
+  function confettiBurst(x, y, n, coin) {
     for (let i = 0; i < n; i++) {
       if (confetti.length > 90) confetti.shift();
       confetti.push({
         x, y,
-        vx: (Math.random() - 0.5) * 30,
-        vy: -(6 + Math.random() * 16),
+        vx: (Math.random() - 0.5) * (coin ? 22 : 30),
+        vy: -(6 + Math.random() * (coin ? 12 : 16)),
         hue: Math.random() * 360,
         rot: Math.random() * 6.28,
         vr: (Math.random() - 0.5) * 12,
-        life: 1
+        life: 1,
+        coin: !!coin
       });
     }
   }
+
+  // small win: a spray of gold coins
+  function coinBurst(x, y, n) { confettiBurst(x, y, n, true); }
 
   // ═══════════════ Physics ═══════════════
   function reflectSeg(sg) {
@@ -537,6 +563,12 @@
       ball.vx -= (1 + e) * vn * nx;
       ball.vy -= (1 + e) * vn * ny;
     }
+    // rubber grip: damp sliding along the flipper so shots follow the
+    // flipper face instead of skidding — much easier to aim
+    const tx = -ny, ty = nx;
+    const vt = (ball.vx - sx) * tx + (ball.vy - sy) * ty;
+    ball.vx -= vt * 0.1 * tx;
+    ball.vy -= vt * 0.1 * ty;
     return true;
   }
 
@@ -544,6 +576,7 @@
     if (reflectCircle(b.x, b.y, b.r, 0.7, 13)) {
       b.flash = 1;
       addScore(150);
+      bumpKickCharge();
       tone(520 + Math.random() * 300, 0.07, 'square', 0.07);
       return true;
     }
@@ -584,6 +617,7 @@
       if (total === 7 || total === 11) {
         addChips(40);
         floater(dice.x, dice.y + 11, `NATURAL ${total}!  +40 🪙`, '#fbbf24', 1.3);
+        coinBurst(dice.x, dice.y, 20);
         arp([523, 659, 784, 1047], 80, 0.22, 0.12);
         craps.mode = 'idle';
       } else if (total === 2 || total === 3 || total === 12) {
@@ -608,12 +642,14 @@
         addChips(50);
         floater(dice.x, dice.y + 11, `POINT MADE!  +50 🪙`, '#4ade80', 1.8);
         confettiBurst(dice.x, dice.y, 44);
+        coinBurst(dice.x, dice.y + 4, 24);
         arp([523, 659, 784, 1047, 1319], 75, 0.24, 0.13);
         craps.mode = 'idle';
         craps.point = null;
       } else {
         addChips(total);
         floater(dice.x, dice.y + 11, `${total}  +${total} 🪙`, '#fbbf24');
+        coinBurst(dice.x, dice.y, 8);
         tone(660, 0.12, 'sine', 0.09);
       }
     }
@@ -643,11 +679,48 @@
 
     if (ballState !== 'live') return;
 
+    // riding the Ferris wheel: the ball sits in its gondola for a lap,
+    // then gets flung toward the dice with a free roll
+    if (captured) {
+      const g = gondolaPos(captured.idx);
+      ball.x = g.x;
+      ball.y = g.y;
+      ball.vx = 0; ball.vy = 0;
+      if (now >= captured.until) {
+        const idx = captured.idx;
+        captured = null;
+        const dx = dice.x - g.x, dy = dice.y - g.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const spread = (Math.random() - 0.5) * 0.55;
+        const cos = Math.cos(spread), sin = Math.sin(spread);
+        const sp = 58 + Math.random() * 22;
+        ball.vx = (dx / d * cos - dy / d * sin) * sp;
+        ball.vy = (dx / d * sin + dy / d * cos) * sp;
+        wheel.boost = 2.4;
+        floater(g.x, g.y - 8, 'FREE ROLL!', '#fbbf24', 1.2);
+        tone(300, 0.2, 'triangle', 0.1, 900);
+        if (craps.mode === 'idle' || craps.mode === 'suspended') placeBet(true);
+        if (!dice.rolling) rollDice(now);
+      }
+      return;
+    }
+
     ball.vy += GRAV * STEP;
     ball.vx *= 0.9998;
     ball.vy *= 0.9998;
+    // terminal velocity: air resistance bites on the way down, so a
+    // falling ball settles to a realistic speed instead of accelerating
+    if (ball.vy > 0) {
+      const spdF = Math.hypot(ball.vx, ball.vy);
+      if (spdF > 80) {
+        const k = 1 - Math.min(0.5, 3 * STEP * (spdF - 80) / 80);
+        ball.vx *= k;
+        ball.vy *= k;
+      }
+    }
     const spd = Math.hypot(ball.vx, ball.vy);
     if (spd > MAXV) { ball.vx = ball.vx / spd * MAXV; ball.vy = ball.vy / spd * MAXV; }
+    if (ball.air > 0) ball.air -= STEP;
     ball.x += ball.vx * STEP;
     ball.y += ball.vy * STEP;
 
@@ -669,6 +742,12 @@
         ball.vx *= spdA / ns;
         ball.vy *= spdA / ns;
       }
+    }
+
+    // launch ramp: leaving the lane at speed lofts the ball into a jump
+    if (ball.air <= 0 && ball.x > 86 && ball.y < 58 && ball.vy < -25) {
+      ball.air = 0.7;
+      tone(500, 0.1, 'triangle', 0.07, 800);
     }
 
     // lane rollover dots
@@ -713,6 +792,7 @@
             if (kx * (45.5 - ball.x) + ky * (60 - ball.y) < 0) { kx = -kx; ky = -ky; }
             ball.vx += kx * 16; ball.vy += ky * 16;
             addScore(25);
+            bumpKickCharge();
             tone(220, 0.06, 'square', 0.08);
           }
         }
@@ -733,6 +813,7 @@
       if (reflectCircle(wheel.x, wheel.y, wheel.hubR, 0.6, 9)) {
         wheel.flash = 1; wheel.boost = 2.2;
         addScore(500);
+        bumpKickCharge();
         floater(wheel.x, wheel.y - 12, '+500', '#22d3ee');
         tone(880, 0.1, 'sine', 0.09);
       }
@@ -740,12 +821,27 @@
         const ga = wheel.ang + i * Math.PI / 3;
         const gx = wheel.x + wheel.orbit * Math.cos(ga);
         const gy = wheel.y + wheel.orbit * Math.sin(ga);
-        const mvx = -wOmega * wheel.orbit * Math.sin(ga);
-        const mvy = wOmega * wheel.orbit * Math.cos(ga);
-        if (reflectCircle(gx, gy, wheel.gonR, 0.6, 7, mvx, mvy)) {
-          wheel.flash = 1; wheel.boost = 2.2;
-          addScore(250);
-          tone(700 + i * 40, 0.08, 'triangle', 0.08);
+        const open = i % 2 === 1;
+        if (open) {
+          // open door: the ball climbs aboard for a ride
+          if (!captured && now > captureCool &&
+              Math.hypot(ball.x - gx, ball.y - gy) < wheel.gonR + ball.r) {
+            captured = { until: now + 1100, idx: i };
+            captureCool = now + 5000;
+            wheel.flash = 1; wheel.boost = 1.6;
+            addScore(250);
+            floater(wheel.x, wheel.y - 14, 'ALL ABOARD!', '#22d3ee');
+            tone(660, 0.1, 'sine', 0.09); tone(880, 0.14, 'sine', 0.08);
+          }
+        } else {
+          const mvx = -wOmega * wheel.orbit * Math.sin(ga);
+          const mvy = wOmega * wheel.orbit * Math.cos(ga);
+          if (reflectCircle(gx, gy, wheel.gonR, 0.6, 7, mvx, mvy)) {
+            wheel.flash = 1; wheel.boost = 2.2;
+            addScore(250);
+            bumpKickCharge();
+            tone(700 + i * 40, 0.08, 'triangle', 0.08);
+          }
         }
       }
 
@@ -758,6 +854,7 @@
           tg.up = false;
           hitAny = true;
           addScore(400);
+          bumpKickCharge();
           tone(880, 0.09, 'square', 0.08);
         }
       }
@@ -820,9 +917,13 @@
     ballState = 'ready';
     charge = 0;
     trail.length = 0;
-    kicksThisBall = 0;
+    kickbacks.L.armed = true;
+    kickbacks.R.armed = true;
+    kickCharge = 0;
     scoreThisBall = 0;
     stuckT = 0;
+    captured = null;
+    ball.air = 0;
   }
 
   function launch() {
@@ -839,6 +940,9 @@
     } else if (location.hash === '#test-outlane-r') {
       // hidden test hook: drop the ball into the right outlane
       ball.x = 80, ball.y = 118; ball.vx = 0; ball.vy = 10;
+    } else if (location.hash === '#test-wheel') {
+      // hidden test hook: drop the ball onto the Ferris wheel
+      ball.x = 26; ball.y = 28; ball.vx = 0; ball.vy = 6;
     } else {
       // power maps to landing spot: soft plunges drop down the right,
       // full power rides the arc all the way over to the left orbit
@@ -1112,6 +1216,34 @@
       c.lineTo(PX(x2, y2), PY(y2));
       c.stroke();
     }
+    // launch ramp at the top of the lane: raised plates that read as an
+    // incline, ending in a short lip wall the ball jumps over
+    for (let i = 0; i < 5; i++) {
+      const ry = 60 - i * 3.2;
+      const shade = 0.1 + i * 0.05;
+      c.fillStyle = `rgba(240, 210, 160, ${shade})`;
+      c.beginPath();
+      c.moveTo(PX(88.9, ry), PY(ry));
+      c.lineTo(PX(96.1, ry), PY(ry));
+      c.lineTo(PX(96.1, ry - 2.8), PY(ry - 2.8));
+      c.lineTo(PX(88.9, ry - 2.8), PY(ry - 2.8));
+      c.closePath();
+      c.fill();
+    }
+    // lip wall across the ramp end (the physics gate lives here too)
+    c.strokeStyle = '#2b1608';
+    c.lineWidth = Math.max(3.5, S * 1.7);
+    c.beginPath();
+    c.moveTo(PX(88, 52), PY(52));
+    c.lineTo(PX(95, 43), PY(43));
+    c.stroke();
+    c.strokeStyle = 'rgba(255, 226, 170, 0.75)';
+    c.lineWidth = Math.max(1.5, S * 0.6);
+    c.beginPath();
+    c.moveTo(PX(88, 51.4), PY(51.4));
+    c.lineTo(PX(95, 42.4), PY(42.4));
+    c.stroke();
+
     // rubber posts above the outlanes
     for (const po of posts) {
       c.fillStyle = '#e2e8f0';
@@ -1365,14 +1497,29 @@
       ctx.strokeStyle = 'rgba(0,0,0,0.25)';
       ctx.stroke();
 
-      // door
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      rr(gx + 0.2 * p, gy - 0.5 * p, 1.4 * p, 2.6 * p, 0.3 * p);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.beginPath();
-      ctx.arc(gx + 0.55 * p, gy + 0.85 * p, 0.16 * p, 0, 7);
-      ctx.fill();
+      if (i % 2 === 1) {
+        // open car: dark doorway with the door swung out on its hinge —
+        // the ball can hop in for a ride
+        ctx.fillStyle = 'rgba(5, 8, 14, 0.85)';
+        rr(gx + 0.2 * p, gy - 0.6 * p, 1.5 * p, 2.8 * p, 0.3 * p);
+        ctx.fill();
+        ctx.save();
+        ctx.translate(gx + 1.8 * p, gy - 0.6 * p);
+        ctx.rotate(0.85);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        rr(0, 0, 1.2 * p, 2.6 * p, 0.25 * p);
+        ctx.fill();
+        ctx.restore();
+      } else {
+        // closed door with handle
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        rr(gx + 0.2 * p, gy - 0.5 * p, 1.4 * p, 2.6 * p, 0.3 * p);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.beginPath();
+        ctx.arc(gx + 0.55 * p, gy + 0.85 * p, 0.16 * p, 0, 7);
+        ctx.fill();
+      }
     }
     // hub
     ctx.fillStyle = '#e2e8f0';
@@ -1419,14 +1566,15 @@
     const p2 = { x: PX(tipX, tipY), y: PY(tipY) };
     const p = PS(f.py);
     ctx.lineCap = 'round';
-    ctx.strokeStyle = '#0c0a18';
-    ctx.lineWidth = (f.r * 2 + 1.6) * p;
+    // black rubber ring, like the real thing
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = (f.r * 2 + 2.4) * p;
     ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
     const grad = ctx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
     grad.addColorStop(0, '#fbbf24');
     grad.addColorStop(1, '#f472b6');
     ctx.strokeStyle = grad;
-    ctx.lineWidth = f.r * 2 * p;
+    ctx.lineWidth = (f.r * 2 - 0.5) * p;
     ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
     ctx.lineCap = 'butt';
   }
@@ -1442,12 +1590,16 @@
       ctx.arc(PX(t.x, t.y), PY(t.y), ball.r * PS(t.y) * (0.5 + 0.5 * i / trail.length), 0, 7);
       ctx.fill();
     }
-    const p = PS(ball.y), x = PX(ball.x, ball.y), y = PY(ball.y);
-    const r = ball.r * p;
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    const p = PS(ball.y), x = PX(ball.x, ball.y);
+    // airborne off the launch ramp: lofted above the table with a
+    // detached shadow beneath
+    const jump = ball.air > 0 ? Math.sin(Math.PI * (1 - ball.air / 0.7)) * 4.5 : 0;
+    const y = PY(ball.y) - jump * p;
+    const r = ball.r * p * (1 + jump * 0.05);
+    // shadow (stays on the table surface)
+    ctx.fillStyle = `rgba(0,0,0,${0.35 - jump * 0.04})`;
     ctx.beginPath();
-    ctx.ellipse(x + r * 0.35, y + r * 0.5, r * 1.05, r * 0.6, 0, 0, 7);
+    ctx.ellipse(x + r * 0.35, PY(ball.y) + r * 0.5, r * (1.05 - jump * 0.06), r * 0.6, 0, 0, 7);
     ctx.fill();
     // chrome ball
     const g = ctx.createRadialGradient(x - r * 0.4, y - r * 0.45, r * 0.1, x, y, r);
@@ -1461,35 +1613,78 @@
   }
 
   function drawPlunger(now) {
-    // spring + launch hint
-    const sx = PX(92.5, 163), sy = PY(163);
-    const p = PS(160);
-    const comp = ballState === 'charging' ? charge : 0;
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = Math.max(2, 1.6 * p);
-    ctx.beginPath();
-    const coils = 4, h = (6 - comp * 3.4) * p;
-    for (let i = 0; i <= coils * 2; i++) {
-      const yy = sy - (i / (coils * 2)) * h;
-      const xx = sx + (i % 2 === 0 ? -2.4 : 2.4) * p;
-      i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
-    }
-    ctx.stroke();
+    const showMeter = ballState === 'ready' || ballState === 'charging';
 
-    if (ballState === 'ready' || ballState === 'charging') {
+    // The whole launch lane is the power meter: old-school progressive
+    // bulbs, green → yellow → red, filling with charge
+    const NB = 12;
+    for (let i = 0; i < NB; i++) {
+      const by = 147 - i * 7.6; // bottom of the lane up to the ramp
+      const bp = PS(by);
+      const lit = showMeter && charge * NB >= i + 0.6;
+      let col;
+      if (i < 5) col = lit ? '#4ade80' : 'rgba(74, 222, 128, 0.13)';
+      else if (i < 9) col = lit ? '#fbbf24' : 'rgba(251, 191, 36, 0.13)';
+      else col = lit ? '#f87171' : 'rgba(248, 113, 113, 0.13)';
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      const topLit = lit && charge * NB < i + 1.6;
+      ctx.arc(PX(92.5, by), PY(by), (lit ? (topLit ? 1.5 : 1.2) : 0.75) * bp, 0, 7);
+      ctx.fill();
+      if (lit) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    // Plunger assembly below the table lip: rod, coil spring, red knob.
+    // Pulling the handle stretches the spring down with the charge.
+    const px0 = PX(92.5, 166), p = PS(163);
+    const floorPx = PY(163.2);
+    const pull = (ballState === 'charging' ? charge : 0) * 5.5 * p;
+    const knobY = PY(168) + pull;
+    // housing
+    ctx.fillStyle = '#3f2410';
+    ctx.fillRect(px0 - 2.4 * p, floorPx - 1 * p, 4.8 * p, 1.6 * p);
+    // rod
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = Math.max(2, 1.1 * p);
+    ctx.beginPath();
+    ctx.moveTo(px0, floorPx);
+    ctx.lineTo(px0, knobY);
+    ctx.stroke();
+    // coil spring around the rod
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = Math.max(1.5, 0.55 * p);
+    ctx.beginPath();
+    const coils = 6;
+    const springTop = floorPx + 0.6 * p;
+    const springBot = knobY - 1.4 * p;
+    for (let i = 0; i <= coils * 2; i++) {
+      const yy = springTop + (i / (coils * 2)) * Math.max(2, springBot - springTop);
+      const xx = px0 + (i % 2 === 0 ? -1.9 : 1.9) * p;
+      i === 0 ? ctx.moveTo(px0, springTop) : ctx.lineTo(xx, yy);
+    }
+    ctx.lineTo(px0, springBot + 0.5 * p);
+    ctx.stroke();
+    // classic red ball knob
+    const kg = ctx.createRadialGradient(px0 - 0.6 * p, knobY - 0.6 * p, 0.2 * p, px0, knobY, 2.1 * p);
+    kg.addColorStop(0, '#fca5a5');
+    kg.addColorStop(0.5, '#dc2626');
+    kg.addColorStop(1, '#7f1d1d');
+    ctx.fillStyle = kg;
+    ctx.beginPath();
+    ctx.arc(px0, knobY, 2.1 * p, 0, 7);
+    ctx.fill();
+
+    if (showMeter) {
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = `rgba(255,255,255,${0.5 + 0.3 * Math.sin(now * 0.005)})`;
       ctx.font = `500 ${Math.max(11, S * 3)}px Inter, sans-serif`;
       ctx.fillText(ballState === 'charging' ? 'release!' : (isTouch ? 'hold to launch' : 'hold SPACE to launch'),
         PX(50, 132), PY(126));
-      if (ballState === 'charging') {
-        // charge meter
-        const mx = PX(92.5, 120), myB = PY(120), myT = PY(88);
-        ctx.fillStyle = 'rgba(0,0,0,0.4)';
-        ctx.fillRect(mx - 3, myT, 6, myB - myT);
-        ctx.fillStyle = charge > 0.85 ? '#f87171' : '#fbbf24';
-        ctx.fillRect(mx - 3, myB - (myB - myT) * charge, 6, (myB - myT) * charge);
-      }
     }
   }
 
@@ -1572,21 +1767,30 @@
   function drawKickbacks() {
     for (const side of ['L', 'R']) {
       const kb = kickbacks[side];
-      const armed = kicksThisBall < 1 || (scoreThisBall < 800 && kicksThisBall < 2);
       const p = PS(kb.y), x = PX(kb.x, kb.y), y = PY(kb.y);
       const w = 4.6 * p, h = (2.2 + kb.flash * 5) * p;
       ctx.fillStyle = kb.flash > 0 ? '#fef08a'
-        : armed ? '#fbbf24' : 'rgba(148, 163, 184, 0.4)';
+        : kb.armed ? '#fbbf24' : 'rgba(148, 163, 184, 0.35)';
       ctx.beginPath();
       ctx.moveTo(x - w / 2, y);
       ctx.lineTo(x, y - h);
       ctx.lineTo(x + w / 2, y);
       ctx.closePath();
       ctx.fill();
-      if (armed && state === 'play') {
+      if (kb.armed && state === 'play') {
         ctx.strokeStyle = `rgba(251, 191, 36, ${0.3 + kb.flash * 0.7})`;
         ctx.lineWidth = 1;
         ctx.stroke();
+      } else if (!kb.armed && kickCharge > 0 && side === (!kickbacks.L.armed ? 'L' : 'R')) {
+        // recharge progress on the next kickback in line
+        ctx.fillStyle = 'rgba(74, 222, 128, 0.75)';
+        const frac = kickCharge / KICK_CHARGE_N;
+        ctx.beginPath();
+        ctx.moveTo(x - w / 2 * frac, y);
+        ctx.lineTo(x, y - h * frac);
+        ctx.lineTo(x + w / 2 * frac, y);
+        ctx.closePath();
+        ctx.fill();
       }
       kb.flash = Math.max(0, kb.flash - 0.05);
     }
@@ -1624,8 +1828,24 @@
       ctx.translate(PX(cf.x, cf.y), PY(Math.max(cf.y, 2)));
       ctx.rotate(cf.rot);
       ctx.globalAlpha = Math.min(1, cf.life * 1.6);
-      ctx.fillStyle = `hsl(${cf.hue}, 90%, 62%)`;
-      ctx.fillRect(-0.8 * p, -0.5 * p, 1.6 * p, 1.0 * p);
+      if (cf.coin) {
+        // spinning gold coin: rotation reads as a squashed ellipse
+        const squash = Math.abs(Math.cos(cf.rot * 2)) * 0.7 + 0.3;
+        ctx.fillStyle = '#fbbf24';
+        ctx.strokeStyle = '#a16207';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 0.9 * p, 0.9 * p * squash, 0, 0, 7);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#fde68a';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 0.45 * p, 0.45 * p * squash, 0, 0, 7);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = `hsl(${cf.hue}, 90%, 62%)`;
+        ctx.fillRect(-0.8 * p, -0.5 * p, 1.6 * p, 1.0 * p);
+      }
       ctx.restore();
     }
     ctx.globalAlpha = 1;
