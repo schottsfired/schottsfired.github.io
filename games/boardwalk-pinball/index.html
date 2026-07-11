@@ -259,6 +259,8 @@
   let ballSaved = false;
 
   const ball = { x: 92.5, y: 158, vx: 0, vy: 0, r: 2.6, air: 0 };
+  // debug accessor for automated playtests (harmless in normal play)
+  window.__ball = () => ({ x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, state: ballState });
   const trail = [];
   const floaters = []; // {x, y, text, color, life, vy}
 
@@ -332,11 +334,14 @@
   addSeg(50, 12, 50, 19);
   addSeg(56, 12, 56, 19);
 
-  // Rubber posts guarding the outlane entrances (real-table protection)
+  // Rubber post guarding the right outlane entrance
   const posts = [
-    { x: 11, y: 114, r: 1.6 },
     { x: 80, y: 114, r: 1.6 }
   ];
+  // The left outlane gets a one-way flap instead of a post: it deflects
+  // balls falling toward the drain, but a kickback rockets up through it
+  // freely on its way to the spinner and the lane dots
+  addSeg(9.5, 115, 12.5, 118.5, { rest: 0.5, cond: b => b.vy > 0 });
 
   // Flat rollover spinner painted on the left channel floor: no
   // collision — the ball rolls straight over it, sets it whirling, and
@@ -358,7 +363,7 @@
   // Outlane kickbacks — like a real table, a pusher can fire the ball back
   // out of the drain channel. Generous: always saves a low-scoring ball.
   const kickbacks = {
-    L: { x: 13, y: 152.5, flash: 0, cool: 0, armed: true },
+    L: { x: 11.5, y: 152.5, flash: 0, cool: 0, armed: true },
     R: { x: 78, y: 152.5, flash: 0, cool: 0, armed: true }
   };
   // firing a kickback disarms it; hitting table features charges a spent
@@ -487,7 +492,10 @@
     ball.x = kb.x;
     ball.y = kb.y - 2;
     if (side === 'L') {
-      ball.vx = 0;
+      // hug the wall side of the channel so the divider-rail tip can't
+      // deflect the ball out through the lower gap — clean run to the
+      // spinner and the lane dots above
+      ball.vx = -1.2;
       ball.vy = -power;
     } else {
       // angled to clear the right deflector rail into the playfield
@@ -763,23 +771,26 @@
     ball.x += ball.vx * STEP;
     ball.y += ball.vy * STEP;
 
-    // Rail-ride the top arc like a wireform: a fast ball near the arc is
-    // steered along the curve, so launch power controls how far around it
-    // carries — soft plunges fall down the right, full power crests left
+    // Rail-ride the top arc like a wireform — but only for genuinely
+    // fast balls hugging the outer band, and with rolling friction so
+    // the ride bleeds speed. A slowing ball detaches and drops (into
+    // the BUCK lanes near the apex, into the middle at mid power)
+    // instead of orbiting the arc forever.
     if (ball.y < ARC.cy) {
       const dxA = ball.x - ARC.cx, dyA = ball.y - ARC.cy;
       const dA = Math.hypot(dxA, dyA);
       const spdA = Math.hypot(ball.vx, ball.vy);
-      if (dA > ARC.r - 8 && spdA > 35) {
+      if (dA > ARC.r - 5.5 && spdA > 55) {
         const nx = dxA / dA, ny = dyA / dA;
         let tx = -ny, ty = nx;
         if (tx * ball.vx + ty * ball.vy < 0) { tx = -tx; ty = -ty; }
-        const k = 10 * STEP;
+        const k = 8 * STEP;
         ball.vx = ball.vx * (1 - k) + tx * spdA * k;
         ball.vy = ball.vy * (1 - k) + ty * spdA * k;
         const ns = Math.hypot(ball.vx, ball.vy) || 1;
-        ball.vx *= spdA / ns;
-        ball.vy *= spdA / ns;
+        const keep = (spdA / ns) * 0.997; // rolling friction on the rail
+        ball.vx *= keep;
+        ball.vy *= keep;
       }
     }
 
@@ -1015,8 +1026,9 @@
   function launch() {
     ballState = 'live';
     if (location.hash === '#test-outlane') {
-      // hidden test hook: drop the ball straight into the left outlane
-      ball.x = 9; ball.y = 100; ball.vx = 0; ball.vy = 10;
+      // hidden test hook: drop the ball down the wall side into the
+      // left outlane (the one-way flap covers the inner approach)
+      ball.x = 6; ball.y = 100; ball.vx = 0; ball.vy = 10;
     } else if (location.hash === '#test-center') {
       // hidden test hook: drop the ball dead-center between resting flippers
       ball.x = 45.5; ball.y = 138; ball.vx = 0; ball.vy = 5;
@@ -1301,7 +1313,7 @@
       [78.5, 119, 74, 149], [74, 149, 63.4, 152.3],
       [97, 47, 97, 162], [88, 162, 97, 162],
       [16, 48.5, 14, 52], [14, 52, 14, 100], [14, 100, 24, 112],
-      [82, 96, 74, 114],
+      [82, 96, 74, 114], [9.5, 115, 12.5, 118.5],
       [44, 12, 44, 19], [50, 12, 50, 19], [56, 12, 56, 19]
     ];
     for (const [x1, y1, x2, y2] of wallPairs) {
