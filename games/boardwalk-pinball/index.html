@@ -171,7 +171,7 @@
     <h1>Boardwalk<br>Royale</h1>
     <div class="byline">Built for Cynthia <span class="heart">♥</span></div>
     <p id="controls-hint"></p>
-    <p style="font-size:12px">Launching antes <b>10 chips</b> and rolls a free come-out:<br><b>7/11</b> wins, <b>2·3·12</b> loses the bet (earn points to re-bet).<br>Otherwise a point is set — make it for a payout, <b>7</b> is out. 🎲</p>
+    <p style="font-size:12px">Every launch puts <b>15 on the pass line</b> and rolls a come-out.<br>Point set? <b>15 more rides the odds</b> — paid at true casino odds.<br><b>7/11</b> wins the come-out · <b>2·3·12</b> craps · then <b>7</b> is out. 🎲</p>
     <button class="btn" id="play-btn">Play</button>
   </div>
 
@@ -252,7 +252,7 @@
   let ballState = 'ready'; // ready | charging | live
   let score = 0, ballNum = 1;
   let best = +(localStorage.getItem('pinball-best') || 0);
-  let chips = 100; // per-game bankroll — only the high score persists
+  let chips = 300; // per-game bankroll — only the high score persists
   let charge = 0, chargeT0 = 0;
   let launchTime = 0;
   const BALL_SAVE_MS = 10000;
@@ -266,15 +266,22 @@
   const MAXV = 150;
   const STEP = 1 / 240;
 
-  // Craps state machine. Launching a ball antes and fires a FREE come-out
-  // roll. 7/11 wins, 2/3/12 loses the bet (suspended until the player
-  // earns a free re-bet with points), anything else sets the point.
-  // modes: idle (no bet; dice-pad hit antes + rolls) | live-comeout
-  // (bet placed, come-out pending/rolling) | point | suspended
-  const ANTE = 10;
-  const REBET_SCORE = 1200;
-  const craps = { mode: 'idle', point: null, suspendBase: 0 };
+  // Craps: a realistic pass-line + odds simulator that runs alongside
+  // the pinball. Pinball actions only decide WHEN dice roll — never the
+  // outcome or the money. Launching places 15 on the pass line and
+  // fires a free come-out roll; setting a point lays 15 more on the
+  // odds, paid at true odds (4/10 → 2:1, 5/9 → 3:2, 6/8 → 6:5).
+  // modes: idle (no bet) | live-comeout (pass bet down) | point
+  const PASS = 15;
+  const ODDS = 15;
+  const craps = { mode: 'idle', point: null, passBet: 0, oddsBet: 0 };
   let autoRollAt = 0;
+
+  function trueOdds(point) {
+    if (point === 4 || point === 10) return 2;
+    if (point === 5 || point === 9) return 1.5;
+    return 1.2; // 6 or 8
+  }
 
   // Rollover dots in the left orbit lane — collect the trail for a bonus
   const laneDots = [{ y: 60, lit: true }, { y: 72, lit: true }, { y: 84, lit: true }, { y: 96, lit: true }];
@@ -459,13 +466,6 @@
   function addScore(n) {
     score += n;
     scoreThisBall += n;
-    // earning back a free re-bet after crapping out
-    if (craps.mode === 'suspended' && scoreThisBall - craps.suspendBase >= REBET_SCORE) {
-      placeBet(true);
-      floater(45.5, 90, 'FREE RE-BET!', '#4ade80', 1.4);
-      arp([523, 659, 784], 70, 0.18, 0.11);
-      autoRollAt = performance.now() + 800;
-    }
     updateHud();
   }
 
@@ -625,13 +625,7 @@
     if (now < dice.cool || dice.rolling) return;
     dice.cool = now + 800;
     addScore(300);
-    if (craps.mode === 'suspended') {
-      const left = Math.max(0, REBET_SCORE - (scoreThisBall - craps.suspendBase));
-      floater(dice.x, dice.y + 11, `NO BET — ${left} TO RE-BET`, '#f87171');
-      tone(220, 0.1, 'square', 0.06);
-      return;
-    }
-    if (craps.mode === 'idle') placeBet(false);
+    if (craps.mode === 'idle' && !placeBet()) return;
     rollDice(now);
   }
 
@@ -644,42 +638,54 @@
     tone(120, 0.14, 'square', 0.11); // dice settle thump
     if (craps.mode === 'live-comeout') {
       if (total === 7 || total === 11) {
-        addChips(40);
-        floater(dice.x, dice.y + 11, `NATURAL ${total}!  +40 🪙`, '#fbbf24', 1.3);
+        // natural: pass line pays even money
+        addChips(craps.passBet * 2);
+        floater(dice.x, dice.y + 11, `NATURAL ${total}!  +${craps.passBet} 🪙`, '#fbbf24', 1.3);
         coinBurst(dice.x, dice.y, 20);
         arp([523, 659, 784, 1047], 80, 0.22, 0.12);
         craps.mode = 'idle';
+        craps.passBet = 0;
       } else if (total === 2 || total === 3 || total === 12) {
-        craps.mode = 'suspended';
-        craps.suspendBase = scoreThisBall;
-        floater(dice.x, dice.y + 11, `CRAPS ${total} — bet lost`, '#f87171', 1.2);
+        floater(dice.x, dice.y + 11, `CRAPS ${total}  −${craps.passBet} 🪙`, '#f87171', 1.2);
         tone(240, 0.35, 'sawtooth', 0.1, 110);
+        craps.mode = 'idle';
+        craps.passBet = 0;
       } else {
         craps.mode = 'point';
         craps.point = total;
-        floater(dice.x, dice.y + 11, `POINT IS ${total}`, '#22d3ee', 1.2);
+        // lay the odds behind the line
+        craps.oddsBet = Math.min(ODDS, chips);
+        if (craps.oddsBet > 0) addChips(-craps.oddsBet);
+        floater(dice.x, dice.y + 11,
+          `POINT ${total} — ODDS ${craps.oddsBet} DOWN`, '#22d3ee', 1.2);
         tone(520, 0.15, 'sine', 0.1); tone(660, 0.18, 'sine', 0.09);
       }
     } else if (craps.mode === 'point') {
       if (total === 7) {
-        addChips(-20);
-        floater(dice.x, dice.y + 11, 'SEVEN OUT  −20 🪙', '#f87171', 1.2);
+        const lost = craps.passBet + craps.oddsBet;
+        floater(dice.x, dice.y + 11, `SEVEN OUT  −${lost} 🪙`, '#f87171', 1.2);
         tone(280, 0.5, 'sawtooth', 0.11, 90);
         craps.mode = 'idle';
         craps.point = null;
+        craps.passBet = 0;
+        craps.oddsBet = 0;
       } else if (total === craps.point) {
-        addChips(50);
-        floater(dice.x, dice.y + 11, `POINT MADE!  +50 🪙`, '#4ade80', 1.8);
+        // pass pays even; odds pay true odds for the point
+        const oddsWin = Math.floor(craps.oddsBet * trueOdds(craps.point));
+        const winnings = craps.passBet + oddsWin;
+        addChips(craps.passBet * 2 + craps.oddsBet + oddsWin);
+        floater(dice.x, dice.y + 11, `POINT ${craps.point} MADE!  +${winnings} 🪙`, '#4ade80', 1.8);
         confettiBurst(dice.x, dice.y, 44);
         coinBurst(dice.x, dice.y + 4, 24);
         arp([523, 659, 784, 1047, 1319], 75, 0.24, 0.13);
         craps.mode = 'idle';
         craps.point = null;
+        craps.passBet = 0;
+        craps.oddsBet = 0;
       } else {
-        addChips(total);
-        floater(dice.x, dice.y + 11, `${total}  +${total} 🪙`, '#fbbf24');
-        coinBurst(dice.x, dice.y, 8);
-        tone(660, 0.12, 'sine', 0.09);
+        // no action — the shooter rolls again
+        floater(dice.x, dice.y + 11, `${total} — no action`, 'rgba(255,255,255,0.55)');
+        tone(500, 0.08, 'sine', 0.05);
       }
     }
   }
@@ -732,8 +738,8 @@
         wheel.boost = 2.4;
         floater(g.x, g.y - 8, 'FREE ROLL!', '#fbbf24', 1.2);
         tone(300, 0.2, 'triangle', 0.1, 900);
-        if (craps.mode === 'idle' || craps.mode === 'suspended') placeBet(true);
-        if (!dice.rolling) rollDice(now);
+        if (craps.mode === 'idle') placeBet(); // a real bet — the ride only earns the roll
+        if (craps.mode !== 'idle' && !dice.rolling) rollDice(now);
       }
       return;
     }
@@ -1029,23 +1035,23 @@
       ball.vy = -(95 + 68 * charge) * (0.97 + Math.random() * 0.06);
       ball.vx = 0;
     }
-    if (craps.mode === 'idle') {
-      placeBet(false);
+    if (craps.mode === 'idle' && placeBet()) {
       autoRollAt = performance.now() + 1000; // free come-out while the ball flies
     }
     launchTime = performance.now();
     tone(200, 0.25, 'triangle', 0.1, 620);
   }
 
-  function placeBet(free) {
-    if (!free) {
-      const bet = Math.min(ANTE, chips);
-      if (bet > 0) {
-        addChips(-bet);
-        floater(45.5, 122, 'ANTE −' + bet + ' 🪙', '#fbbf24');
-      }
+  function placeBet() {
+    if (chips < PASS) {
+      floater(45.5, 122, 'BANKROLL TOO LOW', '#f87171');
+      return false;
     }
+    addChips(-PASS);
+    craps.passBet = PASS;
     craps.mode = 'live-comeout';
+    floater(45.5, 122, 'PASS LINE 15 🪙', '#fbbf24');
+    return true;
   }
 
   function ballLost(now) {
@@ -1057,10 +1063,9 @@
       return;
     }
     tone(300, 0.5, 'sawtooth', 0.1, 70);
-    craps.mode = 'idle';
-    craps.point = null;
+    // craps state deliberately survives: losing a pinball ball never
+    // touches the dice game (bets stay live for the next launch)
     autoRollAt = 0;
-    dice.rolling = false;
     nightMode = false;
     wheelBounces = 0;
     for (const ro of rollovers) ro.lit = false;
@@ -1092,8 +1097,9 @@
   function newGame() {
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     ensureAudio();
-    score = 0; ballNum = 1; ballSaved = false; chips = 100;
+    score = 0; ballNum = 1; ballSaved = false; chips = 300;
     craps.mode = 'idle'; craps.point = null;
+    craps.passBet = 0; craps.oddsBet = 0;
     autoRollAt = 0; dice.rolling = false; dice.resultUntil = 0;
     nightMode = false; wheelBounces = 0;
     for (const ro of rollovers) ro.lit = false;
@@ -1940,7 +1946,7 @@
   function drawAimLamps(now) {
     const avail = [
       now > captureCool,                                                // a seat is free
-      craps.mode !== 'suspended' && now > dice.cool && !dice.rolling,   // dice ready
+      now > dice.cool && !dice.rolling,                                 // dice ready
       true,                                                             // bumpers always
       targets.some(tg => tg.up)                                         // bank standing
     ];
@@ -2068,91 +2074,164 @@
     ctx.globalAlpha = 1;
   }
 
-  // Sub-level craps pit: a recessed mini-scene under glass, embedded in
-  // the felt like a real table's under-playfield window. The ball rolls
-  // over it — it's drawn beneath the ball with a glass sheen on top.
-  function drawCrapsSub() {
-    const x0 = PX(20, 68), x1 = PX(41, 68);
-    const y0 = PY(58.5), y1 = PY(78);
-    const w = x1 - x0, h = y1 - y0;
-    const p = PS(68);
+  // Casino chip stack, colored by denomination like the real rack:
+  // white 1 / red 5 / green 25 / black 100 / purple 500. Height is
+  // capped — big money reads as color, not clipping.
+  const DENOMS = [
+    [500, '#7c3aed', '#4c1d95'],
+    [100, '#111827', '#000000'],
+    [25, '#16a34a', '#14532d'],
+    [5, '#dc2626', '#7f1d1d'],
+    [1, '#e5e7eb', '#9ca3af']
+  ];
 
-    // recessed pit: dark felt with an inner shadow ring + wood frame
+  function drawChipStack(cx, baseY, amount, p, maxChips) {
+    // break the amount into denominations, largest first
+    let rem = Math.max(0, Math.round(amount));
+    const stack = [];
+    for (const d of DENOMS) {
+      while (rem >= d[0] && stack.length < 24) { stack.push(d); rem -= d[0]; }
+    }
+    if (amount > 0 && stack.length === 0) stack.push(DENOMS[4]);
+    // cap the drawn height: keep the biggest chips, drop the smallest
+    const draw = stack.slice(0, maxChips || 8);
+    for (let i = draw.length - 1; i >= 0; i--) {
+      const d = draw[i];
+      const cy = baseY - (draw.length - 1 - i) * 1.05 * p;
+      ctx.fillStyle = d[1];
+      ctx.strokeStyle = d[2];
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 2.5 * p, 0.9 * p, 0, 0, 7);
+      ctx.fill();
+      ctx.stroke();
+      // edge spots
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = Math.max(1, 0.35 * p);
+      for (const a of [0.5, 2.64, 4.78]) {
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 2.5 * p, 0.9 * p, 0, a, a + 0.5);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Sub-level craps pit: a miniature craps table recessed beneath the
+  // playfield, under a sheen of glass the ball slides over. Point boxes
+  // with an ON/OFF puck, a curved PASS LINE with the bets sitting on
+  // it, and the bankroll racked on the left rail.
+  function drawCrapsSub() {
+    const x0 = PX(18, 69), x1 = PX(44, 69);
+    const y0 = PY(58), y1 = PY(82);
+    const w = x1 - x0, h = y1 - y0;
+    const p = PS(69);
+
+    // wood frame + recessed casino felt
     ctx.strokeStyle = '#5a3418';
     ctx.lineWidth = Math.max(2.5, 1.5 * p);
-    ctx.fillStyle = '#062e25';
+    ctx.fillStyle = '#0c5a3c';
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 2 * p);
     else ctx.rect(x0, y0, w, h);
     ctx.fill();
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
     ctx.lineWidth = Math.max(1.5, 0.8 * p);
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(x0 + 1.5, y0 + 1.5, w - 3, h - 3, 1.8 * p);
     else ctx.rect(x0 + 1.5, y0 + 1.5, w - 3, h - 3);
     ctx.stroke();
 
-    // chip stack (lower left of the pit)
-    const stackX = x0 + w * 0.16;
-    const baseY = y1 - h * 0.18;
-    const n = Math.max(1, Math.min(8, Math.round(chips / 30)));
-    for (let i = 0; i < n; i++) {
-      const cy = baseY - i * 1.1 * p;
-      ctx.fillStyle = i % 3 === 2 ? '#f472b6' : i % 3 === 1 ? '#22d3ee' : '#fbbf24';
-      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    // ── point boxes: 4 5 6 8 9 10 across the top ──
+    const points = [4, 5, 6, 8, 9, 10];
+    const boxW = w * 0.115, boxH = h * 0.24;
+    const rowX = x0 + w * 0.24, rowY = y0 + h * 0.1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${Math.max(7, boxH * 0.42)}px Inter, sans-serif`;
+    for (let i = 0; i < 6; i++) {
+      const bx = rowX + i * (boxW + w * 0.012);
+      const active = craps.point === points[i];
+      ctx.fillStyle = active ? 'rgba(251, 191, 36, 0.3)' : 'rgba(255,255,255,0.05)';
+      ctx.strokeStyle = active ? '#fbbf24' : 'rgba(255,255,255,0.45)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(stackX, cy, 2.6 * p, 0.95 * p, 0, 0, 7);
+      ctx.rect(bx, rowY, boxW, boxH);
       ctx.fill();
       ctx.stroke();
-    }
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.font = `800 ${Math.max(10, 3 * p)}px Inter, sans-serif`;
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillText(String(chips), stackX + 3.6 * p, baseY + 0.8 * p);
-
-    // rules card rows (right side of the pit)
-    const fs = Math.max(7, 1.75 * p);
-    ctx.font = `700 ${fs}px Inter, sans-serif`;
-    const rowSegs = (segs, ry, active) => {
-      ctx.globalAlpha = active ? 1 : 0.38;
-      let tx = x0 + w * 0.08;
-      for (const [txt, col] of segs) {
-        ctx.fillStyle = col;
-        ctx.fillText(txt, tx, ry);
-        tx += ctx.measureText(txt).width + fs * 0.55;
+      ctx.fillStyle = active ? '#fde68a' : 'rgba(255,255,255,0.8)';
+      ctx.fillText(String(points[i]), bx + boxW / 2, rowY + boxH * 0.52);
+      // ON puck rides the active point box
+      if (active) {
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath();
+        ctx.arc(bx + boxW / 2, rowY - boxH * 0.28, boxH * 0.26, 0, 7);
+        ctx.fill();
+        ctx.fillStyle = '#111';
+        ctx.font = `800 ${boxH * 0.22}px Inter, sans-serif`;
+        ctx.fillText('ON', bx + boxW / 2, rowY - boxH * 0.26);
+        ctx.font = `700 ${Math.max(7, boxH * 0.42)}px Inter, sans-serif`;
       }
-      ctx.globalAlpha = 1;
-    };
-    if (craps.mode === 'suspended') {
-      const left = Math.max(0, REBET_SCORE - (scoreThisBall - craps.suspendBase));
-      rowSegs([['BET LOST', '#f87171'], [`${left} PTS TO RE-BET`, 'rgba(255,255,255,0.8)']],
-        y0 + h * 0.3, true);
-    } else {
-      rowSegs([
-        ['7·11 ✓ +40', '#5eead4'],
-        ['2·3·12 ✗', '#f87171']
-      ], y0 + h * 0.3, craps.mode !== 'point');
     }
-    rowSegs([
-      ['POINT ' + (craps.point ?? '—'), '#22d3ee'],
-      ['✓ +50', '#4ade80'],
-      ['7 ✗', '#f87171']
-    ], y0 + h * 0.52, craps.mode === 'point');
+    // OFF puck parks left of the row during the come-out
+    if (craps.point === null) {
+      ctx.fillStyle = '#111827';
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.beginPath();
+      ctx.arc(x0 + w * 0.13, rowY + boxH * 0.5, boxH * 0.28, 0, 7);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = `800 ${boxH * 0.22}px Inter, sans-serif`;
+      ctx.fillText('OFF', x0 + w * 0.13, rowY + boxH * 0.52);
+    }
 
-    // glass sheen over everything in the pit
+    // ── curved PASS LINE band along the bottom ──
+    const arcCx = x0 + w / 2, arcCy = y0 - h * 0.9;
+    const arcR = h * 2.1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1;
+    for (const rr2 of [arcR, arcR + h * 0.2]) {
+      ctx.beginPath();
+      ctx.arc(arcCx, arcCy, rr2, Math.PI * 0.32, Math.PI * 0.68);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = `700 ${Math.max(7, h * 0.09)}px Inter, sans-serif`;
+    ctx.fillText('P A S S   L I N E', arcCx, y0 + h * 0.87);
+
+    // bets sit on the layout
+    if (craps.passBet > 0) {
+      drawChipStack(arcCx + w * 0.16, y0 + h * 0.78, craps.passBet, p * 0.8, 4);
+    }
+    if (craps.oddsBet > 0) {
+      drawChipStack(arcCx + w * 0.16, y0 + h * 0.6, craps.oddsBet, p * 0.8, 4);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.font = `600 ${Math.max(6, h * 0.07)}px Inter, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText('ODDS', arcCx + w * 0.24, y0 + h * 0.6);
+      ctx.textAlign = 'center';
+    }
+
+    // ── bankroll racked on the left rail ──
+    drawChipStack(x0 + w * 0.12, y0 + h * 0.78, chips, p, 8);
+    ctx.textAlign = 'center';
+    ctx.font = `800 ${Math.max(9, 2.4 * p)}px Inter, sans-serif`;
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText(String(chips), x0 + w * 0.12, y1 - h * 0.05);
+
+    // ── glass sheen over the whole pit ──
     const sheen = ctx.createLinearGradient(x0, y0, x1, y1);
-    sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
+    sheen.addColorStop(0, 'rgba(255,255,255,0.11)');
     sheen.addColorStop(0.35, 'rgba(255,255,255,0.02)');
-    sheen.addColorStop(0.6, 'rgba(255,255,255,0.07)');
+    sheen.addColorStop(0.6, 'rgba(255,255,255,0.08)');
     sheen.addColorStop(1, 'rgba(255,255,255,0.01)');
     ctx.fillStyle = sheen;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 2 * p);
     else ctx.rect(x0, y0, w, h);
     ctx.fill();
+    ctx.textBaseline = 'alphabetic';
   }
 
   // ═══════════════ Main loop ═══════════════
